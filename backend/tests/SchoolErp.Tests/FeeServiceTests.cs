@@ -4,6 +4,7 @@ using SchoolErp.Application.Fees;
 using SchoolErp.Domain.Common;
 using SchoolErp.Domain.Entities;
 using SchoolErp.Domain.Enums;
+using SchoolErp.Infrastructure.Persistence;
 using Xunit;
 
 namespace SchoolErp.Tests;

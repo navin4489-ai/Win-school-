@@ -99,7 +99,7 @@ public sealed class ParentService
         };
     }
 
-    public async Task<StudentAttendanceSummaryDto> GetAttendanceAsync(int studentId, DateOnly from, DateOnly to,
+    public async Task<AttendanceSummaryDto> GetAttendanceAsync(int studentId, DateOnly from, DateOnly to,
         CancellationToken ct = default)
     {
         await EnsureLinkedAsync(studentId, ct);

@@ -319,7 +319,7 @@ public sealed class StudentService
         {
             Id = link.Id, DocumentId = document.Id, FileName = document.OriginalFileName,
             ContentType = document.ContentType, SizeBytes = document.SizeBytes,
-            DocumentType = document.DocumentType, IsVerified = false,
+            DocumentType = link.DocumentType, IsVerified = false,
             CreatedAtUtc = document.CreatedAtUtc, Url = document.PublicUrl
         };
     }

@@ -193,7 +193,7 @@ public sealed class ReportService
             join s in _db.Students on a.StudentId equals s.Id
             join klass in _db.Classes on a.ClassId equals klass.Id
             join section in _db.Sections on a.SectionId equals section.Id
-            where a.SchoolId == SchoolId && !a.IsDeleted && a.AttendanceDate >= from && a.AttendanceDate <= to
+            where a.SchoolId == SchoolId && !a.IsDeleted && a.AttendanceDate >= @from && a.AttendanceDate <= to
             select new { a, StudentName = s.FirstName + " " + s.LastName, s.AdmissionNo, ClassName = klass.Name, SectionName = section.Name };
 
         if (classId is > 0) query = query.Where(x => x.a.ClassId == classId);

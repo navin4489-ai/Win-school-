@@ -20,7 +20,7 @@ public interface IAppDbContext
     DbSet<ExamSubject> ExamSubjects { get; }
     DbSet<StudentMark> StudentMarks { get; }
     DbSet<ReportCard> ReportCards { get; }
-    DbSet<Homework> Homework { get; }
+    DbSet<SchoolErp.Domain.Entities.Homework> Homework { get; }
     DbSet<AssignmentSubmission> AssignmentSubmissions { get; }
     DbSet<StudyMaterial> StudyMaterials { get; }
     DbSet<Student> Students { get; }

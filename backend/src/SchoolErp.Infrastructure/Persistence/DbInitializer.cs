@@ -525,7 +525,7 @@ public sealed class DbInitializer
                 new FeeStructureItem
                 {
                     SchoolId = school.Id, BranchId = branch.Id, FeeStructureId = structure.Id,
-                    FeeCategoryId = exam.Id, Amount = examAmount, Frequency = FeeFrequency.Annual, DueDay = 10
+                    FeeCategoryId = examFee.Id, Amount = examAmount, Frequency = FeeFrequency.Annual, DueDay = 10
                 },
                 new FeeStructureItem
                 {
@@ -602,7 +602,7 @@ public sealed class DbInitializer
                         StudentId = aarav.Id, StudentFeeAssignmentId = assignment.Id,
                         FeeInstallmentId = installment.Id, Amount = installment.Amount,
                         Mode = PaymentMode.Upi, Status = PaymentStatus.Success,
-                        PaidAtUtc = today.AddDays(-(10 - i)), ReferenceNo = $"UPI-{receiptCounter:000000}",
+                        PaidAtUtc = today.AddDays(-(10 - i)).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc), ReferenceNo = $"UPI-{receiptCounter:000000}",
                         CollectedBy = accountant.Id, Remarks = "Demo seed payment"
                     });
                     installment.PaidAmount = installment.Amount;
@@ -618,7 +618,7 @@ public sealed class DbInitializer
                         StudentId = diya.Id, StudentFeeAssignmentId = assignment.Id,
                         FeeInstallmentId = installment.Id, Amount = 6000m,
                         Mode = PaymentMode.BankTransfer, Status = PaymentStatus.Success,
-                        PaidAtUtc = today.AddDays(-3), ReferenceNo = "NEFT-778812",
+                        PaidAtUtc = today.AddDays(-3).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc), ReferenceNo = "NEFT-778812",
                         CollectedBy = accountant.Id, Remarks = "Part payment"
                     });
                     installment.PaidAmount = 6000m;
@@ -634,7 +634,7 @@ public sealed class DbInitializer
                         StudentId = ananya.Id, StudentFeeAssignmentId = assignment.Id,
                         FeeInstallmentId = installment.Id, Amount = installment.Amount,
                         Mode = PaymentMode.Cash, Status = PaymentStatus.Success,
-                        PaidAtUtc = today.AddDays(-5), CollectedBy = accountant.Id
+                        PaidAtUtc = today.AddDays(-5).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc), CollectedBy = accountant.Id
                     });
                     installment.PaidAmount = installment.Amount;
                     installment.Status = InstallmentStatus.Paid;
@@ -651,7 +651,7 @@ public sealed class DbInitializer
             Name = "Term 1 Assessment", ExamType = ExamType.UnitTest,
             StartDate = today.AddDays(-20), EndDate = today.AddDays(-18),
             Status = ExamStatus.Published, IsRankEnabled = true,
-            PublishedAtUtc = today.AddDays(-10), ApprovedBy = principal.Id, ApprovedAtUtc = today.AddDays(-12)
+            PublishedAtUtc = today.AddDays(-10).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc), ApprovedBy = principal.Id, ApprovedAtUtc = today.AddDays(-12).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc)
         };
         _db.Add(examination);
         await _db.SaveChangesAsync(ct);

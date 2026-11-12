@@ -22,7 +22,7 @@ public sealed class ParentsController : ControllerBase
         Ok(await _parents.GetOverviewAsync(studentId, ct));
 
     [HttpGet("children/{studentId:int}/attendance")]
-    public async Task<ActionResult<StudentAttendanceSummaryDto>> Attendance(int studentId,
+    public async Task<ActionResult<AttendanceSummaryDto>> Attendance(int studentId,
         [FromQuery] DateOnly from, [FromQuery] DateOnly to, CancellationToken ct) =>
         Ok(await _parents.GetAttendanceAsync(studentId, from, to, ct));
 

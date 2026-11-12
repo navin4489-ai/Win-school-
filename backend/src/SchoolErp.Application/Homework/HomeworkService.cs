@@ -66,7 +66,7 @@ public sealed class HomeworkService
 
         var employeeId = await ResolveTeacherAsync(request.ClassId, request.SectionId, request.SubjectId, ct);
 
-        var homework = new Homework
+        var homework = new SchoolErp.Domain.Entities.Homework
         {
             SchoolId = SchoolId,
             BranchId = _user.BranchId,
