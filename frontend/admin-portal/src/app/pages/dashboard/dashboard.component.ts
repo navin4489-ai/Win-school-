@@ -34,7 +34,8 @@ import { ChartPoint, Dashboard } from '../../core/models';
 
       @if (loading()) {
         <div class="loading">Loading dashboard…</div>
-      } @else if (dashboard(); as data) {
+      }
+      @if (!loading() && dashboard(); as data) {
         <section class="stat-grid">
           @for (card of data.cards; track card.key) {
             <article [class]="'stat tone-' + card.tone">

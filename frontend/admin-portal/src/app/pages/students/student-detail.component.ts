@@ -18,7 +18,8 @@ import { AttendanceSummary, Ledger, StudentDetail } from '../../core/models';
       @if (error()) { <div class="error">{{ error() }}</div> }
       @if (loading()) {
         <div class="loading">Loading student profile…</div>
-      } @else if (student(); as s) {
+      }
+      @if (!loading() && student(); as s) {
         <header class="page-header">
           <div class="row" style="gap:14px">
             <div class="avatar" style="width:56px;height:56px;font-size:19px">{{ initials(s.fullName) }}</div>
