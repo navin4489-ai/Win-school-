@@ -32,7 +32,9 @@ jobs:
           cache: true
 
       - name: Generate Android project
-        run: flutter create . --platforms android --org com.wintech --project-name school_erp_app
+        run: |
+          flutter create . --platforms android --org com.wintech --project-name school_erp_app
+          rm -f test/widget_test.dart
 
       - name: Allow network access (internet permission + plain-HTTP servers for testing)
         run: |
