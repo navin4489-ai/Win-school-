@@ -36,6 +36,18 @@ public sealed class HomeworkService
         if (sectionId is > 0) query = query.Where(x => x.h.SectionId == sectionId);
         if (subjectId is > 0) query = query.Where(x => x.h.SubjectId == subjectId);
 
+        if (_user.IsInRole(RoleCodes.Student) || _user.IsInRole(RoleCodes.Parent))
+        {
+            var ownStudentId = _user.StudentId ?? -1;
+            var guardianId = _user.GuardianId ?? -1;
+            var isStudent = _user.IsInRole(RoleCodes.Student);
+            var placements = _db.Students.Where(st => st.SchoolId == SchoolId && !st.IsDeleted &&
+                (isStudent
+                    ? st.Id == ownStudentId
+                    : _db.StudentParents.Any(sp => sp.GuardianId == guardianId && sp.StudentId == st.Id && !sp.IsDeleted)));
+            query = query.Where(x => placements.Any(st => st.ClassId == x.h.ClassId && st.SectionId == x.h.SectionId));
+        }
+
         var rows = await query.OrderByDescending(x => x.h.DueAtUtc).Take(200).ToListAsync(ct);
         var ids = rows.Select(r => r.h.Id).ToList();
         var counts = await _db.AssignmentSubmissions

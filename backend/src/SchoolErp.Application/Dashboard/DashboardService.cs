@@ -31,6 +31,9 @@ public sealed class DashboardService
 
         var role = _user.Roles.FirstOrDefault() ?? string.Empty;
 
+        if (_user.IsInRole(RoleCodes.Parent) || _user.IsInRole(RoleCodes.Student))
+            return await BuildFamilyDashboardAsync(role, today, ct);
+
         var studentCount = await _db.Students.CountAsync(s =>
             s.SchoolId == SchoolId && s.Status == StudentStatus.Active && !s.IsDeleted, ct);
 
@@ -157,16 +160,6 @@ public sealed class DashboardService
             cards.Add(new DashboardCardDto { Key = "outstanding", Label = "Outstanding fees", Value = outstanding.ToString("N0"), Unit = "INR", Tone = outstanding > 0 ? "warning" : "positive" });
             cards.Add(new DashboardCardDto { Key = "refunds", Label = "Refunds pending", Value = refundsPending.ToString(), Tone = refundsPending > 0 ? "warning" : "neutral", Hint = $"{failedPayments} failed attempts" });
         }
-        else if (role == RoleCodes.Parent)
-        {
-            var guardianId = _user.GuardianId;
-            var children = guardianId is null ? 0 : await _db.StudentParents
-                .CountAsync(sp => sp.SchoolId == SchoolId && sp.GuardianId == guardianId && !sp.IsDeleted);
-
-            cards.Add(new DashboardCardDto { Key = "children", Label = "Children", Value = children.ToString() });
-            cards.Add(new DashboardCardDto { Key = "due", Label = "Fee balance", Value = outstanding.ToString("N0"), Unit = "INR", Tone = outstanding > 0 ? "warning" : "positive" });
-            cards.Add(new DashboardCardDto { Key = "attendance", Label = "Attendance today", Value = $"{attendancePercent:0.#}%", Hint = "School-wide view" });
-        }
         else
         {
             cards.Add(new DashboardCardDto { Key = "students", Label = "Active students", Value = studentCount.ToString("N0"), Hint = "Across all branches" });
@@ -184,7 +177,7 @@ public sealed class DashboardService
             cards.Add(new DashboardCardDto { Key = "attendance", Label = "Attendance today", Value = $"{attendancePercent:0.#}%", Hint = attendanceTotal == 0 ? "Not marked yet" : $"{attendanceTotal} records" });
         }
 
-        var activities = await _db.AuditLogs
+        var activities = !_user.HasPermission(Permissions.AuditRead) ? new List<ActivityDto>() : await _db.AuditLogs
             .Where(a => a.SchoolId == SchoolId)
             .OrderByDescending(a => a.Id)
             .Take(6)
@@ -220,11 +213,100 @@ public sealed class DashboardService
                 .Where(s => s.SchoolId == SchoolId && s.IsCurrent && !s.IsDeleted)
                 .Select(s => s.Name).FirstOrDefaultAsync(ct),
             Cards = cards,
-            FeeCollectionTrend = feeTrend,
+            FeeCollectionTrend = _user.HasPermission(Permissions.FeesRead) ? feeTrend : new List<ChartPointDto>(),
             AttendanceTrend = attendanceTrend,
-            AdmissionTrend = admissionTrend,
+            AdmissionTrend = _user.HasPermission(Permissions.AdmissionsManage) ? admissionTrend : new List<ChartPointDto>(),
             RecentActivity = activities,
             TodayTimetable = timetable
+        };
+    }
+
+    /// <summary>Parent/student dashboard: every figure is limited to the caller's own children (or self).</summary>
+    private async Task<DashboardDto> BuildFamilyDashboardAsync(string role, DateOnly today, CancellationToken ct)
+    {
+        List<int> studentIds;
+        if (_user.IsInRole(RoleCodes.Student))
+        {
+            studentIds = _user.StudentId is int own ? new List<int> { own } : new List<int>();
+        }
+        else
+        {
+            var guardianId = _user.GuardianId ?? -1;
+            studentIds = await _db.StudentParents
+                .Where(sp => sp.SchoolId == SchoolId && sp.GuardianId == guardianId && !sp.IsDeleted)
+                .Select(sp => sp.StudentId).Distinct().ToListAsync(ct);
+        }
+
+        var balance = await (
+            from i in _db.FeeInstallments
+            join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
+            where studentIds.Contains(a.StudentId) && i.SchoolId == SchoolId && !i.IsDeleted && !a.IsDeleted &&
+                  a.IsActive && i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
+                  i.Amount > i.PaidAmount
+            select i.Amount - i.PaidAmount).SumAsync(ct);
+
+        var monthStart = new DateOnly(today.Year, today.Month, 1);
+        var weekStart = today.AddDays(-6);
+        var records = await _db.StudentAttendances
+            .Where(a => studentIds.Contains(a.StudentId) && a.SchoolId == SchoolId && !a.IsDeleted &&
+                        a.AttendanceDate >= (weekStart < monthStart ? weekStart : monthStart) && a.AttendanceDate <= today)
+            .Select(a => new { a.AttendanceDate, a.Status }).ToListAsync(ct);
+
+        static decimal Percent(IEnumerable<AttendanceStatus> statuses)
+        {
+            var list = statuses.ToList();
+            if (list.Count == 0) return 0;
+            var present = list.Count(s => s is AttendanceStatus.Present or AttendanceStatus.Late) +
+                          list.Count(s => s == AttendanceStatus.HalfDay) * 0.5m;
+            return Math.Round(present / list.Count * 100m, 1);
+        }
+
+        var monthRecords = records.Where(r => r.AttendanceDate >= monthStart).ToList();
+        var pendingHomework = await (
+            from h in _db.Homework
+            join st in _db.Students on new { h.ClassId, h.SectionId } equals new { st.ClassId, st.SectionId }
+            where studentIds.Contains(st.Id) && h.SchoolId == SchoolId && h.IsPublished && !h.IsDeleted &&
+                  h.DueAtUtc >= _clock.UtcNow &&
+                  !_db.AssignmentSubmissions.Any(x => x.HomeworkId == h.Id && x.StudentId == st.Id && !x.IsDeleted)
+            select h.Id).CountAsync(ct);
+
+        var cards = new List<DashboardCardDto>();
+        if (_user.IsInRole(RoleCodes.Parent))
+            cards.Add(new DashboardCardDto { Key = "children", Label = "Children", Value = studentIds.Count.ToString() });
+        cards.Add(new DashboardCardDto
+        {
+            Key = "attendance", Label = "Attendance this month", Value = $"{Percent(monthRecords.Select(r => r.Status)):0.#}%",
+            Hint = monthRecords.Count == 0 ? "No records yet" : $"{monthRecords.Count} records"
+        });
+        cards.Add(new DashboardCardDto
+        {
+            Key = "due", Label = "Fee balance", Value = balance.ToString("N0"), Unit = "INR",
+            Tone = balance > 0 ? "warning" : "positive"
+        });
+        cards.Add(new DashboardCardDto
+        {
+            Key = "homework", Label = "Pending homework", Value = pendingHomework.ToString(),
+            Tone = pendingHomework > 0 ? "warning" : "positive"
+        });
+
+        var trend = Enumerable.Range(0, 7).Select(offset =>
+        {
+            var date = weekStart.AddDays(offset);
+            return new ChartPointDto
+            {
+                Label = date.ToString("ddd"),
+                Value = Percent(records.Where(r => r.AttendanceDate == date).Select(r => r.Status))
+            };
+        }).ToList();
+
+        return new DashboardDto
+        {
+            Role = role,
+            AcademicSession = await _db.AcademicSessions
+                .Where(x => x.SchoolId == SchoolId && x.IsCurrent && !x.IsDeleted)
+                .Select(x => x.Name).FirstOrDefaultAsync(ct),
+            Cards = cards,
+            AttendanceTrend = trend
         };
     }
 }

@@ -39,7 +39,7 @@ public sealed class HrController : ControllerBase
         CancellationToken ct) => Ok(await _ops.GetLeavesAsync(status, ct));
 
     [HttpPost("leaves")]
-    [Authorize(Policy = "permission:hr.read")]
+    [Authorize]
     public async Task<ActionResult<LeaveDto>> ApplyLeave(ApplyLeaveRequest request, CancellationToken ct) =>
         Ok(await _ops.ApplyLeaveAsync(request, ct));
 

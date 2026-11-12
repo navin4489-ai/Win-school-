@@ -30,7 +30,7 @@ public sealed class AttendanceController : ControllerBase
         Ok(await _attendance.GetStudentSummaryAsync(studentId, from, to, ct));
 
     [HttpGet("staff")]
-    [Authorize(Policy = "permission:attendance.read")]
+    [Authorize(Policy = "permission:hr.read")]
     public async Task<ActionResult<List<StaffAttendanceDto>>> Staff([FromQuery] DateOnly date,
         CancellationToken ct) => Ok(await _attendance.GetStaffAttendanceAsync(date, ct));
 

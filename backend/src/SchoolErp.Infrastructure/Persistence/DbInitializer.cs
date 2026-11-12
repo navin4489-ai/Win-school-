@@ -155,7 +155,7 @@ public sealed class DbInitializer
                 Permissions.ExamsManage, Permissions.HomeworkManage, Permissions.LmsManage,
                 Permissions.ReportsRead, Permissions.CommunicationManage),
             [RoleCodes.Student] = Codes(Permissions.AttendanceRead, Permissions.ExamsRead,
-                Permissions.FeesRead, Permissions.LmsManage),
+                Permissions.FeesRead),
             [RoleCodes.Parent] = Codes(Permissions.ParentsRead, Permissions.AttendanceRead,
                 Permissions.ExamsRead, Permissions.FeesRead),
             [RoleCodes.HrManager] = Codes(Permissions.HrRead, Permissions.HrManage,
