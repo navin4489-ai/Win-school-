@@ -25,12 +25,22 @@ public static class ServiceCollectionExtensions
 
         services.AddHttpContextAccessor();
 
+        var useInMemory = string.Equals(configuration["Database:Provider"], "InMemory", StringComparison.OrdinalIgnoreCase);
         services.AddDbContext<AppDbContext>(options =>
+        {
+            if (useInMemory)
+            {
+                // Demo/local only: data is lost on restart.
+                options.UseInMemoryDatabase("SchoolErpDemo");
+                return;
+            }
+
             options.UseSqlServer(connectionString, sql =>
             {
                 sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
                 sql.CommandTimeout(60);
-            }));
+            });
+        });
 
         services.AddScoped<IAppDbContext>(sp => sp.GetRequiredService<AppDbContext>());
         services.AddScoped<IUnitOfWork, UnitOfWork>();
