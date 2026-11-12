@@ -113,6 +113,22 @@ flutter pub get
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5080/api
 ```
 
+### End-to-end tests
+
+With the API running (`scripts/dev-api.sh` starts it on an in-memory demo database), run:
+
+```bash
+node tests/e2e/api-e2e.mjs http://localhost:5080
+```
+
+The suite makes 120 checks. It covers every module workflow (admission → enrolment, fees, refunds, attendance, the exam lifecycle, homework, HR, library, transport, inventory, LMS, notifications, reports). It also checks role isolation: parents see only their linked children, and students see only themselves.
+
+### Android test build
+
+Each push that changes `mobile/` builds an APK with the **Mobile APK** workflow and publishes it to the
+[`mobile-latest` release](../../releases/tag/mobile-latest). Install it on an Android phone, then enter
+the API address on the login screen (for example `https://erp.yourschool.in` or `192.168.1.20:5080`).
+
 ### Demo accounts
 
 | Role | Email | Password |
