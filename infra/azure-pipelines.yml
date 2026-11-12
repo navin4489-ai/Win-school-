@@ -1,0 +1,57 @@
+# Azure DevOps pipeline: build, test and publish container images to Azure Container Registry.
+# Create a Docker registry service connection named "acr-connection" before first run.
+trigger:
+  branches:
+    include: [main]
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  acrConnection: acr-connection
+  apiImage: school-erp-api
+  webImage: school-erp-web
+
+stages:
+  - stage: Build
+    jobs:
+      - job: Backend
+        steps:
+          - task: UseDotNet@2
+            inputs:
+              version: 8.0.x
+          - script: dotnet test backend/SchoolErp.sln -c Release
+            displayName: Build and test API
+      - job: Frontend
+        steps:
+          - task: NodeTool@0
+            inputs:
+              versionSpec: 20.x
+          - script: npm install && npm run build
+            workingDirectory: frontend/admin-portal
+            displayName: Build web portal
+
+  - stage: Publish
+    dependsOn: Build
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: Images
+        steps:
+          - task: Docker@2
+            displayName: API image
+            inputs:
+              containerRegistry: $(acrConnection)
+              repository: $(apiImage)
+              command: buildAndPush
+              Dockerfile: infra/api.Dockerfile
+              buildContext: .
+              tags: $(Build.BuildId)
+          - task: Docker@2
+            displayName: Web image
+            inputs:
+              containerRegistry: $(acrConnection)
+              repository: $(webImage)
+              command: buildAndPush
+              Dockerfile: infra/web.Dockerfile
+              buildContext: .
+              tags: $(Build.BuildId)

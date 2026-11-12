@@ -1,0 +1,38 @@
+# Local full-stack environment: docker compose -f infra/docker-compose.yml up --build
+services:
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Your_password123"
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqldata:/var/opt/mssql
+
+  api:
+    build:
+      context: ..
+      dockerfile: infra/api.Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__Default: "Server=sqlserver,1433;Database=SchoolErp;User Id=sa;Password=Your_password123;TrustServerCertificate=True;Encrypt=True"
+      Jwt__SigningKey: "local-compose-only-signing-key-change-me-0123456789"
+      Cors__AllowedOrigins__0: "http://localhost:8080"
+    depends_on:
+      - sqlserver
+    ports:
+      - "5080:8080"
+    restart: on-failure
+
+  web:
+    build:
+      context: ..
+      dockerfile: infra/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  sqldata:
