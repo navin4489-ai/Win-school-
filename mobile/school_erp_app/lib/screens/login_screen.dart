@@ -17,12 +17,15 @@ class _LoginScreenState extends State<LoginScreen> {
   final _email = TextEditingController(text: 'principal@demo.edu');
   final _password = TextEditingController(text: 'Passw0rd!');
   final _schoolCode = TextEditingController();
+  late final TextEditingController _server =
+      TextEditingController(text: context.read<AuthController>().serverUrl);
 
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
     _schoolCode.dispose();
+    _server.dispose();
     super.dispose();
   }
 
@@ -31,6 +34,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final auth = context.read<AuthController>();
     try {
+      await auth.setServerUrl(_server.text);
       await auth.signIn(
         email: _email.text,
         password: _password.text,
@@ -183,6 +187,18 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: const InputDecoration(
                             labelText: 'School code (optional)',
                           ),
+                        ),
+                        const SizedBox(height: 12),
+                        TextFormField(
+                          controller: _server,
+                          keyboardType: TextInputType.url,
+                          autocorrect: false,
+                          decoration: const InputDecoration(
+                            labelText: 'Server address',
+                            helperText: 'e.g. https://erp.yourschool.in or 192.168.1.20:5080',
+                          ),
+                          validator: (value) =>
+                              (value == null || value.trim().isEmpty) ? 'Server address is required' : null,
                         ),
                         const SizedBox(height: 18),
                         SizedBox(

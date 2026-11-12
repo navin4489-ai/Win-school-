@@ -14,6 +14,7 @@ class AuthController extends ChangeNotifier {
   static const _accessKey = 'school_erp_access';
   static const _refreshKey = 'school_erp_refresh';
   static const _userKey = 'school_erp_user';
+  static const _serverKey = 'school_erp_server';
 
   final ApiClient api;
 
@@ -32,6 +33,8 @@ class AuthController extends ChangeNotifier {
 
   Future<void> restore() async {
     final prefs = await SharedPreferences.getInstance();
+    final server = prefs.getString(_serverKey);
+    if (server != null && server.isNotEmpty) api.baseUrl = server;
     api.accessToken = prefs.getString(_accessKey);
     api.refreshToken = prefs.getString(_refreshKey);
 
@@ -72,6 +75,16 @@ class AuthController extends ChangeNotifier {
       busy = false;
       notifyListeners();
     }
+  }
+
+  String get serverUrl => api.baseUrl;
+
+  Future<void> setServerUrl(String value) async {
+    if (value.trim().isEmpty) return;
+    api.baseUrl = ApiClient.normalize(value);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_serverKey, api.baseUrl);
+    notifyListeners();
   }
 
   Future<void> signOut() async {

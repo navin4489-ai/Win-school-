@@ -1,0 +1,68 @@
+name: Mobile APK
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: Default API address baked into the app (users can change it on the login screen)
+        required: false
+        default: http://10.0.2.2:5080/api
+  push:
+    branches: [main]
+    paths: ['mobile/**', '.github/workflows/mobile-apk.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile/school_erp_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Generate Android project
+        run: flutter create . --platforms android --org com.wintech --project-name school_erp_app
+
+      - name: Allow network access (internet permission + plain-HTTP servers for testing)
+        run: |
+          manifest=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' "$manifest" || \
+            sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$manifest"
+          grep -q 'usesCleartextTraffic' "$manifest" || \
+            sed -i 's#<application#<application android:usesCleartextTraffic="true"#' "$manifest"
+          sed -i 's#android:label="school_erp_app"#android:label="Wintech School ERP"#' "$manifest"
+
+      - run: flutter pub get
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
+
+      - name: Build APK
+        run: |
+          flutter build apk --release \
+            --dart-define=API_BASE_URL=${{ github.event.inputs.api_url || 'http://10.0.2.2:5080/api' }}
+          cp build/app/outputs/flutter-apk/app-release.apk ../../wintech-school-erp.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wintech-school-erp-apk
+          path: wintech-school-erp.apk
+
+      - name: Publish to "mobile-latest" release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete mobile-latest --yes --cleanup-tag 2>/dev/null || true
+          gh release create mobile-latest wintech-school-erp.apk \
+            --title "Mobile app (latest build)" --prerelease \
+            --notes "Test build from ${GITHUB_SHA::7}. Install on Android (allow installs from unknown sources), then set the server address on the login screen."

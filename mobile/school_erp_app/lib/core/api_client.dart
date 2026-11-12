@@ -19,13 +19,21 @@ class ApiException implements Exception {
 /// `--dart-define=API_BASE_URL=https://api.example.com/api`.
 class ApiClient {
   ApiClient({String? baseUrl, http.Client? client})
-      : baseUrl = (baseUrl ??
-                const String.fromEnvironment('API_BASE_URL',
-                    defaultValue: 'http://10.0.2.2:5080/api'))
-            .replaceAll(RegExp(r'/+$'), ''),
+      : baseUrl = normalize(baseUrl ?? defaultBaseUrl),
         _client = client ?? http.Client();
 
-  final String baseUrl;
+  static const defaultBaseUrl = String.fromEnvironment('API_BASE_URL',
+      defaultValue: 'http://10.0.2.2:5080/api');
+
+  /// Accepts `host:port`, `https://host` or a full `.../api` URL and returns the API root.
+  static String normalize(String value) {
+    var url = value.trim().replaceAll(RegExp(r'/+$'), '');
+    if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'http://$url';
+    if (!url.endsWith('/api')) url = '$url/api';
+    return url;
+  }
+
+  String baseUrl;
   final http.Client _client;
 
   String? accessToken;
