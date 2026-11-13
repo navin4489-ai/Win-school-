@@ -103,6 +103,9 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
                     <div><div class="small muted">Paid</div><strong>{{ l.totalPaid | currency:'INR':'symbol':'1.0-0' }}</strong></div>
                     <div><div class="small muted">Balance</div><strong>{{ l.balance | currency:'INR':'symbol':'1.0-0' }}</strong></div>
                     <div><div class="small muted">Overdue</div><strong style="color:var(--red-500)">{{ l.overdue | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                    @if (l.platformFee > 0) {
+                      <div><div class="small muted">Platform fee (included)</div><strong>{{ l.platformFee | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                    }
                     @if (l.penaltyTotal > 0) {
                       <div>
                         <div class="small muted">Late fee applied</div>
@@ -240,6 +243,9 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
                   <div><div class="small muted">Paid</div><strong>{{ l.totalPaid | currency:'INR':'symbol':'1.0-0' }}</strong></div>
                   <div><div class="small muted">Balance</div><strong>{{ l.balance | currency:'INR':'symbol':'1.0-0' }}</strong></div>
                   <div><div class="small muted">Overdue</div><strong style="color:var(--red-500)">{{ l.overdue | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                  @if (l.platformFee > 0) {
+                    <div><div class="small muted">Platform fee (included)</div><strong>{{ l.platformFee | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                  }
                   @if (l.penaltyTotal > 0) {
                     <div>
                       <div class="small muted">Late fee applied</div>

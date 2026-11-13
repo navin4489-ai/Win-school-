@@ -1020,6 +1020,9 @@ BEGIN
     [TimeZone] NVARCHAR(256) NOT NULL,
     [CurrencyCode] NVARCHAR(32) NOT NULL,
     [EnabledModules] NVARCHAR(256) NULL,
+    [PlatformFeeType] NVARCHAR(256) NULL,
+    [PlatformFeeAmount] DECIMAL(18,2) NOT NULL DEFAULT 0,
+    [PlatformFeeNotes] NVARCHAR(256) NULL,
     [CreatedAtUtc] DATETIME2 NOT NULL,
     [ModifiedAtUtc] DATETIME2 NULL
   );
@@ -1241,6 +1244,7 @@ BEGIN
     [TotalAmount] DECIMAL(18,2) NOT NULL,
     [DiscountAmount] DECIMAL(18,2) NOT NULL,
     [NetAmount] DECIMAL(18,2) NOT NULL,
+    [PlatformFeeAmount] DECIMAL(18,2) NOT NULL DEFAULT 0,
     [AssignedAtUtc] DATETIME2 NOT NULL
   );
 END;

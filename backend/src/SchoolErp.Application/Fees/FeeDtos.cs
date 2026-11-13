@@ -109,6 +109,8 @@ public sealed class StudentLedgerDto
     public string ClassName { get; init; } = string.Empty;
     public decimal TotalBilled { get; init; }
     public decimal Discount { get; init; }
+    /// <summary>Platform fee included in TotalBilled.</summary>
+    public decimal PlatformFee { get; init; }
     public decimal TotalPaid { get; init; }
     public decimal Balance { get; init; }
     public decimal Overdue { get; init; }

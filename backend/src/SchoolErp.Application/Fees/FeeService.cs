@@ -184,6 +184,7 @@ public sealed class FeeService
                 throw DomainException.Validation("Discount must be between zero and the total fee.");
 
             var net = Math.Round(structure.TotalAmount - discount, 2, MidpointRounding.AwayFromZero);
+            var platformFee = await PlatformFeeForSessionAsync(structure.AcademicSessionId, token);
 
             var assignment = new StudentFeeAssignment
             {
@@ -193,7 +194,8 @@ public sealed class FeeService
                 AcademicSessionId = structure.AcademicSessionId,
                 TotalAmount = structure.TotalAmount,
                 DiscountAmount = discount,
-                NetAmount = net,
+                NetAmount = net + platformFee,
+                PlatformFeeAmount = platformFee,
                 AssignedAtUtc = _clock.UtcNow
             };
             _db.Add(assignment);
@@ -207,16 +209,23 @@ public sealed class FeeService
             if (Math.Abs(sum - net) > 0.01m)
                 throw DomainException.Validation($"Installment amounts ({sum:0.00}) must equal the net payable ({net:0.00}).");
 
-            foreach (var input in installments)
+            // The platform fee is spread evenly over the installments, remainder on the last.
+            var platformShare = installments.Count == 0 ? 0
+                : Math.Round(platformFee / installments.Count, 2, MidpointRounding.AwayFromZero);
+            var platformRemainder = platformFee - platformShare * installments.Count;
+
+            for (var index = 0; index < installments.Count; index++)
             {
+                var input = installments[index];
                 if (input.Amount <= 0) throw DomainException.Validation("Installment amounts must be positive.");
+                var share = index == installments.Count - 1 ? platformShare + platformRemainder : platformShare;
                 _db.Add(new FeeInstallment
                 {
                     SchoolId = SchoolId,
                     StudentFeeAssignmentId = assignment.Id,
                     Name = input.Name.Trim(),
                     DueDate = input.DueDate == default ? _clock.Today : input.DueDate,
-                    Amount = input.Amount,
+                    Amount = input.Amount + share,
                     PaidAmount = 0,
                     Status = InstallmentStatus.Pending
                 });
@@ -232,7 +241,7 @@ public sealed class FeeService
                     GuardianId = guardian.Id,
                     UserAccountId = guardian.UserAccountId,
                     Title = "Fee plan assigned",
-                    Message = $"A fee plan of {net:0.00} has been assigned to {student.FullName}. Please review the installments.",
+                    Message = $"A fee plan of {net + platformFee:0.00} has been assigned to {student.FullName}. Please review the installments.",
                     Channel = NotificationChannel.InApp,
                     Status = NotificationStatus.Pending,
                     Category = "Fees",
@@ -866,6 +875,7 @@ public sealed class FeeService
             ClassName = className,
             TotalBilled = Math.Round(assignments.Sum(a => a.NetAmount), 2),
             Discount = Math.Round(assignments.Sum(a => a.DiscountAmount), 2),
+            PlatformFee = Math.Round(assignments.Sum(a => a.PlatformFeeAmount), 2),
             TotalPaid = Math.Round(payments.Where(p => p.Status != PaymentStatus.Failed)
                 .Sum(p => p.Amount - p.RefundedAmount), 2),
             Balance = Math.Round(installments.Sum(i => i.TotalAmount - i.PaidAmount), 2),
@@ -887,6 +897,24 @@ public sealed class FeeService
                 ReferenceNo = p.ReferenceNo, RefundedAmount = p.RefundedAmount
             }).ToList()
         };
+    }
+
+    /// <summary>
+    /// Per-student monthly platform fee for one academic session (monthly amount × months
+    /// in the session). Zero unless the school is billed per student.
+    /// </summary>
+    private async Task<decimal> PlatformFeeForSessionAsync(int academicSessionId, CancellationToken ct)
+    {
+        var school = await _db.Schools.Where(s => s.Id == SchoolId)
+            .Select(s => new { s.PlatformFeeType, s.PlatformFeeAmount }).FirstOrDefaultAsync(ct);
+        if (school is null || school.PlatformFeeType != "PerStudentMonthly" || school.PlatformFeeAmount <= 0) return 0;
+
+        var session = await _db.AcademicSessions.Where(s => s.Id == academicSessionId)
+            .Select(s => new { s.StartDate, s.EndDate }).FirstOrDefaultAsync(ct);
+        var months = session is null ? 12
+            : Math.Max(1, (session.EndDate.Year - session.StartDate.Year) * 12 + session.EndDate.Month - session.StartDate.Month + 1);
+
+        return Math.Round(school.PlatformFeeAmount * months, 2, MidpointRounding.AwayFromZero);
     }
 
     private static List<InstallmentInput> BuildDefaultInstallments(FeeStructure structure, decimal net)

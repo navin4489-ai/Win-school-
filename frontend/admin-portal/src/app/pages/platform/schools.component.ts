@@ -8,8 +8,15 @@ interface School {
   id: number; code: string; name: string; legalName?: string | null; logoUrl?: string | null;
   email?: string | null; phone?: string | null; addressLine1?: string | null; city?: string | null;
   state?: string | null; postalCode?: string | null; isActive: boolean; enabledModules: string[];
+  platformFeeType?: string | null; platformFeeAmount: number; platformFeeNotes?: string | null;
   userCount: number; studentCount: number;
 }
+
+const PLATFORM_FEE_LABELS: Record<string, string> = {
+  PerStudentMonthly: 'Monthly – per candidate',
+  SchoolMonthly: 'Monthly – school',
+  OneTime: 'One time'
+};
 
 /** Super admin: onboard schools, brand them and switch their modules on or off. */
 @Component({
@@ -42,7 +49,7 @@ interface School {
               <label class="field">
                 <span>School code *</span>
                 <input formControlName="code" placeholder="e.g. GREENFIELD" [readonly]="!!editingId()" />
-                <span class="hint">Used at sign-in. Cannot be changed later.</span>
+                <span class="hint">Short unique ID for the school. Cannot be changed later.</span>
               </label>
               <label class="field"><span>Name *</span><input formControlName="name" /></label>
               <label class="field"><span>Legal name</span><input formControlName="legalName" /></label>
@@ -77,6 +84,34 @@ interface School {
                 <span class="hint">Students, users and settings are always on. Changes apply at the users' next sign-in.</span>
               </div>
 
+              <div class="field full">
+                <span>Platform payment</span>
+                <div class="form-grid" style="margin-top:4px">
+                  <label class="field">
+                    <span>Payment type</span>
+                    <select formControlName="platformFeeType">
+                      <option value="">No platform fee</option>
+                      <option value="PerStudentMonthly">Monthly – per candidate</option>
+                      <option value="SchoolMonthly">Monthly – school</option>
+                      <option value="OneTime">One time</option>
+                    </select>
+                  </label>
+                  @if (form.controls.platformFeeType.value) {
+                    <label class="field">
+                      <span>{{ amountLabel() }} (₹) *</span>
+                      <input formControlName="platformFeeAmount" type="number" min="0" step="0.01" />
+                      <span class="hint">{{ amountHint() }}</span>
+                    </label>
+                    @if (form.controls.platformFeeType.value !== 'PerStudentMonthly') {
+                      <label class="field">
+                        <span>Agreed terms</span>
+                        <input formControlName="platformFeeNotes" placeholder="e.g. Due by the 5th, agreed with principal" />
+                      </label>
+                    }
+                  }
+                </div>
+              </div>
+
               @if (!editingId()) {
                 <label class="field"><span>Admin full name *</span><input formControlName="adminFullName" /></label>
                 <label class="field"><span>Admin email *</span><input formControlName="adminEmail" type="email" /></label>
@@ -107,7 +142,7 @@ interface School {
         } @else {
           <div class="table-wrap">
             <table>
-              <thead><tr><th>School</th><th>Code</th><th>City</th><th>Users</th><th>Students</th><th>Modules</th><th>Status</th><th></th></tr></thead>
+              <thead><tr><th>School</th><th>Code</th><th>City</th><th>Users</th><th>Students</th><th>Platform fee</th><th>Modules</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 @for (s of schools(); track s.id) {
                   <tr>
@@ -121,6 +156,7 @@ interface School {
                     <td>{{ s.city || '—' }}</td>
                     <td>{{ s.userCount }}</td>
                     <td>{{ s.studentCount }}</td>
+                    <td>{{ feeSummary(s) }}</td>
                     <td>{{ s.enabledModules.length }} / {{ modules().length }}</td>
                     <td>
                       <span class="badge" [class.teal]="s.isActive">{{ s.isActive ? 'Active' : 'Suspended' }}</span>
@@ -164,8 +200,31 @@ export class SchoolsComponent implements OnInit {
     name: ['', Validators.required],
     legalName: [''], email: [''], phone: [''], addressLine1: [''], city: [''], state: [''], postalCode: [''],
     logoUrl: [''],
+    platformFeeType: [''], platformFeeAmount: [0, [Validators.min(0)]], platformFeeNotes: [''],
     adminFullName: [''], adminEmail: [''], adminPassword: ['']
   });
+
+  amountLabel(): string {
+    switch (this.form.controls.platformFeeType.value) {
+      case 'PerStudentMonthly': return 'Amount per student / month';
+      case 'SchoolMonthly': return 'Amount per month';
+      default: return 'One-time amount';
+    }
+  }
+
+  amountHint(): string {
+    return this.form.controls.platformFeeType.value === 'PerStudentMonthly'
+      ? 'Added directly to each student\'s fee and shown to parents as "Platform fee".'
+      : 'Billed to the school as agreed. Not added to student fees.';
+  }
+
+  feeSummary(s: School): string {
+    if (!s.platformFeeType) return '—';
+    const amount = `₹${Number(s.platformFeeAmount).toLocaleString('en-IN')}`;
+    const suffix = s.platformFeeType === 'PerStudentMonthly' ? ' / student / month'
+      : s.platformFeeType === 'SchoolMonthly' ? ' / month' : ' once';
+    return `${PLATFORM_FEE_LABELS[s.platformFeeType] ?? s.platformFeeType}: ${amount}${suffix}`;
+  }
 
   ngOnInit(): void {
     this.api.get<Module[]>('platform/modules').subscribe({ next: m => this.modules.set(m) });
@@ -194,7 +253,9 @@ export class SchoolsComponent implements OnInit {
     this.form.reset({
       code: s.code, name: s.name, legalName: s.legalName ?? '', email: s.email ?? '', phone: s.phone ?? '',
       addressLine1: s.addressLine1 ?? '', city: s.city ?? '', state: s.state ?? '', postalCode: s.postalCode ?? '',
-      logoUrl: s.logoUrl ?? ''
+      logoUrl: s.logoUrl ?? '',
+      platformFeeType: s.platformFeeType ?? '', platformFeeAmount: s.platformFeeAmount ?? 0,
+      platformFeeNotes: s.platformFeeNotes ?? ''
     });
     this.selected.set(new Set(s.enabledModules));
     this.formOpen.set(true);
@@ -231,7 +292,12 @@ export class SchoolsComponent implements OnInit {
     this.message.set(null);
 
     const raw = this.form.getRawValue();
-    const body = { ...raw, enabledModules: [...this.selected()] };
+    const body = {
+      ...raw,
+      platformFeeAmount: raw.platformFeeType ? Number(raw.platformFeeAmount) || 0 : 0,
+      platformFeeNotes: raw.platformFeeType === 'PerStudentMonthly' ? '' : raw.platformFeeNotes,
+      enabledModules: [...this.selected()]
+    };
     const id = this.editingId();
     const request = id
       ? this.api.put<School>(`platform/schools/${id}`, body)
@@ -241,7 +307,7 @@ export class SchoolsComponent implements OnInit {
       next: s => {
         this.saving.set(false);
         this.close();
-        this.message.set(id ? 'School updated.' : `School ${s.code} created. The admin can sign in with school code ${s.code}.`);
+        this.message.set(id ? 'School updated.' : `School ${s.code} created. The admin can now sign in with their email and password.`);
         this.load();
       },
       error: r => { this.saving.set(false); this.error.set(readError(r)); }

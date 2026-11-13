@@ -23,6 +23,9 @@ public sealed class SchoolSummaryDto
     public string? PostalCode { get; init; }
     public bool IsActive { get; init; }
     public IReadOnlyList<string> EnabledModules { get; init; } = Array.Empty<string>();
+    public string? PlatformFeeType { get; init; }
+    public decimal PlatformFeeAmount { get; init; }
+    public string? PlatformFeeNotes { get; init; }
     public int UserCount { get; init; }
     public int StudentCount { get; init; }
     public DateTime CreatedAtUtc { get; init; }
@@ -40,6 +43,12 @@ public class SaveSchoolRequest
     [MaxLength(100)] public string? State { get; set; }
     [MaxLength(20)] public string? PostalCode { get; set; }
     public List<string> EnabledModules { get; set; } = new();
+
+    /// <summary>PerStudentMonthly, SchoolMonthly or OneTime; empty for no platform fee.</summary>
+    [RegularExpression("^(|PerStudentMonthly|SchoolMonthly|OneTime)$", ErrorMessage = "Unknown platform payment type.")]
+    public string? PlatformFeeType { get; set; }
+    [Range(0, 10000000)] public decimal PlatformFeeAmount { get; set; }
+    [MaxLength(256)] public string? PlatformFeeNotes { get; set; }
 }
 
 public sealed class CreateSchoolRequest : SaveSchoolRequest

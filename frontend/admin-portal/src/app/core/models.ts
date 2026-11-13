@@ -212,6 +212,7 @@ export interface Ledger {
   balance: number;
   overdue: number;
   penaltyTotal: number;
+  platformFee: number;
   installments: Installment[];
   payments: Payment[];
 }

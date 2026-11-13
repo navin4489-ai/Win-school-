@@ -164,6 +164,16 @@ else if (!app.Environment.IsDevelopment())
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.EnsureCreatedAsync();
+    if (db.Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true)
+    {
+        // EnsureCreated does not alter an existing schema; add columns introduced later.
+        await db.Database.ExecuteSqlRawAsync("""
+            ALTER TABLE "School" ADD COLUMN IF NOT EXISTS "PlatformFeeType" varchar(256) NULL;
+            ALTER TABLE "School" ADD COLUMN IF NOT EXISTS "PlatformFeeAmount" numeric(18,2) NOT NULL DEFAULT 0;
+            ALTER TABLE "School" ADD COLUMN IF NOT EXISTS "PlatformFeeNotes" varchar(256) NULL;
+            ALTER TABLE "StudentFeeAssignment" ADD COLUMN IF NOT EXISTS "PlatformFeeAmount" numeric(18,2) NOT NULL DEFAULT 0;
+            """);
+    }
     var cfg = builder.Configuration;
     await scope.ServiceProvider.GetRequiredService<DbInitializer>().BootstrapPlatformAsync(
         cfg["Bootstrap:SchoolCode"] ?? "WINTECH",

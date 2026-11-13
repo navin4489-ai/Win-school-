@@ -27,6 +27,14 @@ public class School : Entity
     /// </summary>
     public string? EnabledModules { get; set; }
 
+    /// <summary>
+    /// How the platform bills this school: PerStudentMonthly (added to every student's
+    /// fee), SchoolMonthly or OneTime (amount agreed with the school). Null means none.
+    /// </summary>
+    public string? PlatformFeeType { get; set; }
+    public decimal PlatformFeeAmount { get; set; }
+    public string? PlatformFeeNotes { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? ModifiedAtUtc { get; set; }
 }

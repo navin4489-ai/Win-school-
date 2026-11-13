@@ -432,6 +432,10 @@ public sealed class PlatformService
         school.State = request.State?.Trim();
         school.PostalCode = request.PostalCode?.Trim();
         school.EnabledModules = SchoolModules.Serialize(request.EnabledModules);
+        school.PlatformFeeType = string.IsNullOrWhiteSpace(request.PlatformFeeType) ? null : request.PlatformFeeType;
+        school.PlatformFeeAmount = school.PlatformFeeType is null
+            ? 0 : Math.Round(request.PlatformFeeAmount, 2, MidpointRounding.AwayFromZero);
+        school.PlatformFeeNotes = string.IsNullOrWhiteSpace(request.PlatformFeeNotes) ? null : request.PlatformFeeNotes.Trim();
     }
 
     private static SchoolSummaryDto Map(School s, int users, int students) => new()
@@ -439,6 +443,7 @@ public sealed class PlatformService
         Id = s.Id, Code = s.Code, Name = s.Name, LegalName = s.LegalName, LogoUrl = s.LogoUrl, Email = s.Email,
         Phone = s.Phone, AddressLine1 = s.AddressLine1, City = s.City, State = s.State, PostalCode = s.PostalCode,
         IsActive = s.IsActive, EnabledModules = SchoolModules.Parse(s.EnabledModules).OrderBy(m => m).ToList(),
+        PlatformFeeType = s.PlatformFeeType, PlatformFeeAmount = s.PlatformFeeAmount, PlatformFeeNotes = s.PlatformFeeNotes,
         UserCount = users, StudentCount = students, CreatedAtUtc = s.CreatedAtUtc
     };
 

@@ -37,6 +37,8 @@ public class StudentFeeAssignment : AuditableEntity
     public decimal TotalAmount { get; set; }
     public decimal DiscountAmount { get; set; }
     public decimal NetAmount { get; set; }
+    /// <summary>Platform fee included in NetAmount (per-student monthly billing).</summary>
+    public decimal PlatformFeeAmount { get; set; }
     public DateTime AssignedAtUtc { get; set; } = DateTime.UtcNow;
     public bool IsActive { get; set; } = true;
 }

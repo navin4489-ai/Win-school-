@@ -93,6 +93,7 @@ public static class FeeDocumentBuilder
                  {Row("Class", className)}
                  {Row("Total billed", Format(ledger.TotalBilled))}
                  {Row("Discount", "-" + Format(ledger.Discount))}
+                 {(ledger.PlatformFee > 0 ? Row("Platform fee (included)", Format(ledger.PlatformFee)) : string.Empty)}
                  {Row("Total paid", Format(ledger.TotalPaid))}
                  {Row("Late fee applied", Format(ledger.PenaltyTotal))}
                  {Row("Outstanding balance", Format(ledger.Balance), true)}
