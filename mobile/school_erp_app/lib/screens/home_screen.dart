@@ -11,6 +11,7 @@ import 'my_attendance_screen.dart';
 import 'notifications_screen.dart';
 import 'results_screen.dart';
 import 'students_screen.dart';
+import 'web_portal_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -38,7 +39,8 @@ class _HomeScreenState extends State<HomeScreen> {
     });
 
     try {
-      final response = await context.read<AuthController>().api.get('dashboard');
+      final response =
+          await context.read<AuthController>().api.get('dashboard');
       if (!mounted) return;
       setState(() {
         _dashboard = Dashboard.fromJson(response as Map<String, dynamic>);
@@ -61,6 +63,84 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
+  /// Web portal sections without a native screen, gated exactly as on the web.
+  List<Widget> _portalTiles(AuthController auth) {
+    final isSuperAdmin = auth.user?.roleCode == 'SuperAdmin';
+    final items = <(IconData, String, String, bool)>[
+      (
+        Icons.how_to_reg_outlined,
+        'Admissions',
+        '/admissions',
+        auth.can('admissions.manage')
+      ),
+      (
+        Icons.assignment_ind_outlined,
+        'Class & teachers',
+        '/assignments',
+        auth.can('settings.manage')
+      ),
+      (Icons.quiz_outlined, 'Examinations', '/exams', auth.can('exams.read')),
+      (Icons.menu_book_outlined, 'Homework', '/homework', true),
+      (
+        Icons.bar_chart_outlined,
+        'Reports',
+        '/reports',
+        auth.can('reports.read')
+      ),
+      (Icons.badge_outlined, 'People & HR', '/hr', auth.can('hr.read')),
+      (
+        Icons.directions_bus_outlined,
+        'Transport',
+        '/transport',
+        auth.can('transport.manage')
+      ),
+      (
+        Icons.local_library_outlined,
+        'Library',
+        '/library',
+        auth.can('library.manage')
+      ),
+      (
+        Icons.inventory_2_outlined,
+        'Inventory',
+        '/inventory',
+        auth.can('inventory.manage')
+      ),
+      (
+        Icons.class_outlined,
+        'Classes & subjects',
+        '/settings',
+        auth.can('settings.manage')
+      ),
+      (
+        Icons.manage_accounts_outlined,
+        'Users & roles',
+        '/users',
+        auth.can('users.manage')
+      ),
+      (Icons.apartment_outlined, 'Schools', '/schools', isSuperAdmin),
+    ].where((item) => item.$4).toList();
+
+    if (items.isEmpty) return const [];
+    return [
+      const Padding(
+        padding: EdgeInsets.fromLTRB(16, 14, 16, 4),
+        child: Text('ADMINISTRATION',
+            style: TextStyle(
+                color: AppColors.muted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.2)),
+      ),
+      for (final item in items)
+        _DrawerTile(
+          icon: item.$1,
+          label: item.$2,
+          onTap: () => _open(WebPortalScreen(title: item.$2, route: item.$3)),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthController>();
@@ -78,10 +158,14 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(user?.schoolName ?? 'School workspace', style: const TextStyle(fontSize: 15)),
+            Text(user?.schoolName ?? 'School workspace',
+                style: const TextStyle(fontSize: 15)),
             Text(
               user?.role ?? '',
-              style: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w400),
+              style: const TextStyle(
+                  color: AppColors.muted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w400),
             ),
           ],
         ),
@@ -146,56 +230,66 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     Text(
                       user?.email ?? '',
-                      style: const TextStyle(color: Color(0xFF9FB7CB), fontSize: 12),
+                      style: const TextStyle(
+                          color: Color(0xFF9FB7CB), fontSize: 12),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       '${user?.schoolName ?? ''} · ${user?.role ?? ''}',
-                      style: const TextStyle(color: Color(0xFFC6D7E6), fontSize: 11),
+                      style: const TextStyle(
+                          color: Color(0xFFC6D7E6), fontSize: 11),
                     ),
                   ],
                 ),
               ),
-              _DrawerTile(
-                icon: Icons.people_outline,
-                label: 'Students',
-                enabled: auth.can('students.read'),
-                onTap: () => _open(const StudentsScreen()),
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _DrawerTile(
+                      icon: Icons.people_outline,
+                      label: 'Students',
+                      enabled: auth.can('students.read'),
+                      onTap: () => _open(const StudentsScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.fact_check_outlined,
+                      label: 'Attendance',
+                      enabled: auth.can('attendance.read'),
+                      onTap: () => _open(const AttendanceScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.schedule_outlined,
+                      label: 'My attendance',
+                      enabled: auth.can('attendance.mark'),
+                      onTap: () => _open(const MyAttendanceScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.payments_outlined,
+                      label: 'Fees',
+                      enabled: auth.can('fees.read'),
+                      onTap: () => _open(const FeesScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.school_outlined,
+                      label: 'Results',
+                      enabled: auth.can('exams.read'),
+                      onTap: () => _open(const ResultsScreen()),
+                    ),
+                    _DrawerTile(
+                      icon: Icons.notifications_none,
+                      label: 'Notifications',
+                      onTap: () => _open(const NotificationsScreen()),
+                    ),
+                    ..._portalTiles(auth),
+                  ],
+                ),
               ),
-              _DrawerTile(
-                icon: Icons.fact_check_outlined,
-                label: 'Attendance',
-                enabled: auth.can('attendance.read'),
-                onTap: () => _open(const AttendanceScreen()),
-              ),
-              _DrawerTile(
-                icon: Icons.schedule_outlined,
-                label: 'My attendance',
-                enabled: auth.can('attendance.mark'),
-                onTap: () => _open(const MyAttendanceScreen()),
-              ),
-              _DrawerTile(
-                icon: Icons.payments_outlined,
-                label: 'Fees',
-                enabled: auth.can('fees.read'),
-                onTap: () => _open(const FeesScreen()),
-              ),
-              _DrawerTile(
-                icon: Icons.school_outlined,
-                label: 'Results',
-                enabled: auth.can('exams.read'),
-                onTap: () => _open(const ResultsScreen()),
-              ),
-              _DrawerTile(
-                icon: Icons.notifications_none,
-                label: 'Notifications',
-                onTap: () => _open(const NotificationsScreen()),
-              ),
-              const Spacer(),
               const Divider(height: 1),
               ListTile(
                 leading: const Icon(Icons.logout, color: AppColors.red),
-                title: const Text('Sign out', style: TextStyle(color: AppColors.red)),
+                title: const Text('Sign out',
+                    style: TextStyle(color: AppColors.red)),
                 onTap: _logout,
               ),
             ],
@@ -344,12 +438,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                 children: [
                                   Text(
                                     item.title,
-                                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                                    style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        fontSize: 13),
                                   ),
                                   if (item.detail != null)
                                     Text(
                                       item.detail!,
-                                      style: const TextStyle(color: AppColors.muted, fontSize: 11),
+                                      style: const TextStyle(
+                                          color: AppColors.muted, fontSize: 11),
                                     ),
                                 ],
                               ),
@@ -421,7 +518,11 @@ class _StatCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                Container(width: 7, height: 7, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+                Container(
+                    width: 7,
+                    height: 7,
+                    decoration:
+                        BoxDecoration(color: color, shape: BoxShape.circle)),
                 const SizedBox(width: 6),
                 Expanded(
                   child: Text(
@@ -441,13 +542,19 @@ class _StatCard extends StatelessWidget {
             const Spacer(),
             RichText(
               text: TextSpan(
-                style: const TextStyle(color: AppColors.ink, fontSize: 22, fontWeight: FontWeight.w700),
+                style: const TextStyle(
+                    color: AppColors.ink,
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700),
                 children: [
                   TextSpan(text: card.value),
                   if (card.unit != null)
                     TextSpan(
                       text: ' ${card.unit}',
-                      style: const TextStyle(color: AppColors.muted, fontSize: 11, fontWeight: FontWeight.w500),
+                      style: const TextStyle(
+                          color: AppColors.muted,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500),
                     ),
                 ],
               ),
@@ -467,7 +574,8 @@ class _StatCard extends StatelessWidget {
 }
 
 class _QuickTile extends StatelessWidget {
-  const _QuickTile({required this.icon, required this.label, required this.onTap});
+  const _QuickTile(
+      {required this.icon, required this.label, required this.onTap});
 
   final IconData icon;
   final String label;
@@ -490,7 +598,9 @@ class _QuickTile extends StatelessWidget {
           children: [
             Icon(icon, color: AppColors.teal, size: 20),
             const SizedBox(width: 9),
-            Text(label, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+            Text(label,
+                style:
+                    const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
           ],
         ),
       ),
@@ -558,7 +668,8 @@ class _Empty extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(22),
         child: Center(
-          child: Text(text, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
+          child: Text(text,
+              style: const TextStyle(color: AppColors.muted, fontSize: 12)),
         ),
       ),
     );

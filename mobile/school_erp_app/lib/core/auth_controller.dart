@@ -15,10 +15,13 @@ class AuthController extends ChangeNotifier {
   static const _refreshKey = 'school_erp_refresh';
   static const _userKey = 'school_erp_user';
   static const _serverKey = 'school_erp_server';
+  static const _rawUserKey = 'school_erp_user_raw';
 
   final ApiClient api;
 
   UserProfile? user;
+  /// The user object exactly as the server sent it; the web portal reads this shape.
+  String? rawUserJson;
   bool loading = true;
   bool busy = false;
   String? error;
@@ -37,6 +40,7 @@ class AuthController extends ChangeNotifier {
     if (server != null && server.isNotEmpty) api.baseUrl = server;
     api.accessToken = prefs.getString(_accessKey);
     api.refreshToken = prefs.getString(_refreshKey);
+    rawUserJson = prefs.getString(_rawUserKey);
 
     final rawUser = prefs.getString(_userKey);
     if (rawUser != null) {
@@ -78,6 +82,18 @@ class AuthController extends ChangeNotifier {
   }
 
   String get serverUrl => api.baseUrl;
+
+  /// Root of the web portal (the API lives under /api on the same host).
+  String get webUrl {
+    final base = api.baseUrl;
+    return base.endsWith('/api') ? base.substring(0, base.length - 4) : base;
+  }
+
+  /// Renews the session so a freshly issued token can be handed to the web portal.
+  Future<String?> freshAccessToken() async {
+    await _refreshSession();
+    return api.accessToken;
+  }
 
   Future<void> setServerUrl(String value) async {
     if (value.trim().isEmpty) return;
@@ -127,21 +143,25 @@ class AuthController extends ChangeNotifier {
     api.accessToken = access;
     api.refreshToken = refresh;
     user = UserProfile.fromJson(profile);
+    rawUserJson = jsonEncode(profile);
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_accessKey, access);
     await prefs.setString(_refreshKey, refresh);
     await prefs.setString(_userKey, jsonEncode(user!.toJson()));
+    await prefs.setString(_rawUserKey, rawUserJson!);
   }
 
   Future<void> _clear() async {
     api.accessToken = null;
     api.refreshToken = null;
     user = null;
+    rawUserJson = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_accessKey);
     await prefs.remove(_refreshKey);
     await prefs.remove(_userKey);
+    await prefs.remove(_rawUserKey);
   }
 }
