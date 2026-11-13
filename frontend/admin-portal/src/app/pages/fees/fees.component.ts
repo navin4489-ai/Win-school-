@@ -65,6 +65,7 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
           <button class="tab" [class.active]="tab() === 'collect'" (click)="setTab('collect')">Collect</button>
           <button class="tab" [class.active]="tab() === 'outstanding'" (click)="setTab('outstanding')">Outstanding</button>
           <button class="tab" [class.active]="tab() === 'payments'" (click)="setTab('payments')">Recent payments</button>
+          @if (canSetup()) { <a class="tab" routerLink="/fees/setup">⚙ Fee setup (heads, plans, assign)</a> }
         }
       </div>
 
@@ -191,6 +192,21 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
             </div>
             <div class="card-body">
               <form [formGroup]="form" (ngSubmit)="pay()" class="form-grid">
+                <label class="field full">
+                  <span>Find student *</span>
+                  <div class="row" style="flex-wrap:nowrap">
+                    <input [value]="studentSearch()" (input)="studentSearch.set($any($event.target).value)"
+                           (keyup.enter)="findStudent()" placeholder="Admission no. or name" />
+                    <button class="btn btn-ghost btn-sm" type="button" (click)="findStudent()">Search</button>
+                  </div>
+                  @if (studentMatches().length > 1) {
+                    <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:6px">
+                      @for (s of studentMatches(); track s.id) {
+                        <button class="btn btn-ghost btn-sm" type="button" (click)="chooseStudent(s.id)">{{ s.fullName }} · {{ s.admissionNo }}</button>
+                      }
+                    </div>
+                  }
+                </label>
                 <label class="field">
                   <span>Student ID *</span>
                   <div class="row" style="flex-wrap:nowrap">
@@ -451,6 +467,30 @@ export class FeesComponent implements OnInit {
   });
 
   private feeInstallmentId: number | null = null;
+
+  readonly canSetup = computed(() => this.auth.has('fees.collect'));
+  readonly studentSearch = signal('');
+  readonly studentMatches = signal<{ id: number; fullName: string; admissionNo: string }[]>([]);
+
+  findStudent(): void {
+    const term = this.studentSearch().trim();
+    if (!term) return;
+    this.api.get<{ items: { id: number; fullName: string; admissionNo: string }[] }>('students', { search: term, pageSize: 10 })
+      .subscribe({
+        next: r => {
+          this.studentMatches.set(r.items);
+          if (r.items.length === 1) this.chooseStudent(r.items[0].id);
+          else if (!r.items.length) this.error.set('No student found.');
+        },
+        error: () => this.error.set('Could not search students.')
+      });
+  }
+
+  chooseStudent(id: number): void {
+    this.form.controls.studentId.setValue(id);
+    this.studentMatches.set([]);
+    this.loadLedger();
+  }
 
   ngOnInit(): void {
     const now = new Date();

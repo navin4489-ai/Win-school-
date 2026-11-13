@@ -34,6 +34,11 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/students/student-detail.component').then(m => m.StudentDetailComponent)
       },
       {
+        path: 'fees/setup',
+        canActivate: [permissionGuard('fees.collect')],
+        loadComponent: () => import('./pages/fees/fee-setup.component').then(m => m.FeeSetupComponent)
+      },
+      {
         path: 'fees',
         canActivate: [permissionGuard('fees.read')],
         loadComponent: () => import('./pages/fees/fees.component').then(m => m.FeesComponent)
