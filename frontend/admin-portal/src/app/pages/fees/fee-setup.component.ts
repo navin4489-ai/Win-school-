@@ -2,6 +2,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { readError } from '../platform/schools.component';
 
@@ -73,7 +74,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
             </label>
           </div>
           <table style="margin-top:10px">
-            <thead><tr><th>Fee head</th><th>Amount for the year (₹)</th><th>Type</th><th></th></tr></thead>
+            <thead><tr><th>Fee head</th><th>Type</th><th>Amount (₹)</th><th>Per year</th><th></th></tr></thead>
             <tbody>
               @for (line of planLines; track $index) {
                 <tr>
@@ -83,16 +84,20 @@ interface Installment { name: string; dueDate: string; amount: number; }
                       @for (c of categories(); track c.id) { <option [ngValue]="c.id">{{ c.name }}</option> }
                     </select>
                   </td>
-                  <td><input type="number" min="0" [(ngModel)]="line.amount" style="width:140px" /></td>
                   <td>
                     <select [(ngModel)]="line.frequency">
+                      <option value="Monthly">Monthly</option>
+                      <option value="Quarterly">Quarterly</option>
+                      <option value="HalfYearly">Half-yearly</option>
                       <option value="Annual">Annual</option>
                       <option value="OneTime">One time (e.g. admission)</option>
-                      <option value="HalfYearly">Half-yearly</option>
-                      <option value="Quarterly">Quarterly</option>
-                      <option value="Monthly">Monthly</option>
                     </select>
                   </td>
+                  <td>
+                    <input type="number" min="0" [(ngModel)]="line.amount" style="width:120px" />
+                    <span class="small muted"> {{ perLabel(line.frequency) }}</span>
+                  </td>
+                  <td>{{ yearly(line) | currency:'INR':'symbol':'1.0-0' }}</td>
                   <td><button class="btn btn-ghost btn-sm" (click)="planLines.splice($index, 1)" [disabled]="planLines.length === 1">Remove</button></td>
                 </tr>
               }
@@ -100,7 +105,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
           </table>
           <div class="row" style="gap:10px;margin-top:10px">
             <button class="btn btn-ghost btn-sm" (click)="planLines.push(newLine())">+ Add fee head line</button>
-            <strong>Total: {{ planTotal() | currency:'INR':'symbol':'1.0-0' }}</strong>
+            <strong>Total for the year: {{ planTotal() | currency:'INR':'symbol':'1.0-0' }}</strong>
             <button class="btn btn-primary btn-sm" (click)="savePlan()" [disabled]="!canSavePlan()">Save fee plan</button>
           </div>
 
@@ -123,70 +128,78 @@ interface Installment { name: string; dueDate: string; amount: number; }
 
       <!-- 3. Assign -->
       <section class="card">
-        <div class="card-header"><h3>3. Assign fees to a student</h3></div>
+        <div class="card-header"><h3>3. Assign fees to students</h3></div>
         <div class="card-body">
-          <div class="row" style="gap:8px;flex-wrap:wrap">
-            <input [(ngModel)]="search" placeholder="Admission no. or student name" style="width:260px" (keyup.enter)="findStudents()" />
-            <button class="btn btn-ghost btn-sm" (click)="findStudents()">Search</button>
+          <p class="small muted" style="margin-top:0">A fee plan only bills students after it is assigned here.</p>
+          <div class="form-grid">
+            <label class="field"><span>Fee plan *</span>
+              <select [(ngModel)]="assignPlanId" (ngModelChange)="buildSchedule()">
+                <option [ngValue]="0">Select plan</option>
+                @for (p of activePlans(); track p.id) {
+                  <option [ngValue]="p.id">{{ p.name }} ({{ p.className }}) – {{ p.totalAmount | currency:'INR':'symbol':'1.0-0' }}/year</option>
+                }
+              </select>
+            </label>
+            <label class="field"><span>Discount per student (₹)</span>
+              <input type="number" min="0" [(ngModel)]="discount" (ngModelChange)="buildSchedule()" />
+            </label>
+            <label class="field"><span>Pay in</span>
+              <select [(ngModel)]="schedule" (ngModelChange)="buildSchedule()">
+                <option value="12">12 monthly payments</option>
+                <option value="4">4 quarterly payments</option>
+                <option value="2">2 half-yearly payments</option>
+                <option value="1">1 payment (full year)</option>
+              </select>
+            </label>
+            <label class="field"><span>First due date</span>
+              <input type="date" [(ngModel)]="firstDue" (ngModelChange)="buildSchedule()" />
+            </label>
           </div>
-          @if (students().length) {
-            <div class="list" style="margin-top:8px">
-              @for (s of students(); track s.id) {
-                <button class="list-item" style="width:100%;text-align:left;border:0;background:none;cursor:pointer"
-                        [style.background]="student()?.id === s.id ? 'var(--teal-100)' : ''" (click)="pickStudent(s)">
-                  <strong>{{ s.fullName }}</strong>&nbsp;<span class="small muted">{{ s.admissionNo }} · {{ s.className }} {{ s.sectionName }}</span>
-                </button>
-              }
-            </div>
-          }
 
-          @if (student(); as st) {
-            <div class="form-grid" style="margin-top:12px">
-              <label class="field"><span>Fee plan for {{ st.className }} *</span>
-                <select [(ngModel)]="assignPlanId" (ngModelChange)="buildSchedule()">
-                  <option [ngValue]="0">Select plan</option>
-                  @for (p of plansForStudent(); track p.id) {
-                    <option [ngValue]="p.id">{{ p.name }} – {{ p.totalAmount | currency:'INR':'symbol':'1.0-0' }}</option>
-                  }
-                </select>
-                @if (!plansForStudent().length) { <span class="hint">No plan for {{ st.className }} yet. Create one in step 2.</span> }
-              </label>
-              <label class="field"><span>Discount (₹)</span>
-                <input type="number" min="0" [(ngModel)]="discount" (ngModelChange)="buildSchedule()" />
-              </label>
-              <label class="field"><span>Pay in</span>
-                <select [(ngModel)]="schedule" (ngModelChange)="buildSchedule()">
-                  <option value="1">1 payment (full year)</option>
-                  <option value="2">2 half-yearly payments</option>
-                  <option value="4">4 quarterly payments</option>
-                  <option value="12">12 monthly payments</option>
-                </select>
-              </label>
-              <label class="field"><span>First due date</span>
-                <input type="date" [(ngModel)]="firstDue" (ngModelChange)="buildSchedule()" />
-              </label>
+          @if (installments.length) {
+            <table style="margin-top:10px">
+              <thead><tr><th>Installment</th><th>Due date</th><th>Amount (₹)</th></tr></thead>
+              <tbody>
+                @for (i of installments; track $index) {
+                  <tr>
+                    <td><input [(ngModel)]="i.name" style="width:160px" /></td>
+                    <td><input type="date" [(ngModel)]="i.dueDate" /></td>
+                    <td><input type="number" [(ngModel)]="i.amount" style="width:120px" /></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+            <p class="small" [style.color]="scheduleMismatch() ? 'var(--red-500)' : ''">
+              Installments total {{ scheduleTotal() | currency:'INR':'symbol':'1.0-0' }} / payable {{ payable() | currency:'INR':'symbol':'1.0-0' }}.
+              A platform fee, if the school has one, is added on top automatically.
+            </p>
+
+            <div class="row" style="gap:10px;flex-wrap:wrap;padding:12px;border:1px solid var(--line);border-radius:10px">
+              <strong>Whole class:</strong>
+              <button class="btn btn-primary btn-sm" (click)="assignClass()" [disabled]="scheduleMismatch() || saving()">
+                {{ saving() ? 'Assigning…' : 'Assign to all students in ' + selectedPlan()?.className }}
+              </button>
+              <span class="small muted">Students who already have this plan are skipped.</span>
             </div>
 
-            @if (installments.length) {
-              <table style="margin-top:10px">
-                <thead><tr><th>Installment</th><th>Due date</th><th>Amount (₹)</th></tr></thead>
-                <tbody>
-                  @for (i of installments; track $index) {
-                    <tr>
-                      <td><input [(ngModel)]="i.name" style="width:160px" /></td>
-                      <td><input type="date" [(ngModel)]="i.dueDate" /></td>
-                      <td><input type="number" [(ngModel)]="i.amount" style="width:120px" /></td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-              <div class="row" style="gap:10px;margin-top:10px">
-                <span class="small" [style.color]="scheduleMismatch() ? 'var(--red-500)' : ''">
-                  Installments total {{ scheduleTotal() | currency:'INR':'symbol':'1.0-0' }} / payable {{ payable() | currency:'INR':'symbol':'1.0-0' }}
-                </span>
-                <button class="btn btn-primary btn-sm" (click)="assign()" [disabled]="scheduleMismatch() || saving()">Assign fees</button>
+            <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
+              <strong>One student:</strong>
+              <input [(ngModel)]="search" placeholder="Admission no. or name" style="width:220px" (keyup.enter)="findStudents()" />
+              <button class="btn btn-ghost btn-sm" (click)="findStudents()">Search</button>
+            </div>
+            @if (students().length) {
+              <div class="list" style="margin-top:8px">
+                @for (s of students(); track s.id) {
+                  <div class="list-item">
+                    <div style="flex:1"><strong>{{ s.fullName }}</strong>
+                      <span class="small muted">{{ s.admissionNo }} · {{ s.className }} {{ s.sectionName }}</span></div>
+                    <button class="btn btn-primary btn-sm" (click)="assign(s)"
+                            [disabled]="scheduleMismatch() || saving() || s.className !== selectedPlan()?.className">
+                      {{ s.className !== selectedPlan()?.className ? 'Different class' : 'Assign' }}
+                    </button>
+                  </div>
+                }
               </div>
-              <p class="small muted">A platform fee, if the school has one, is added on top automatically.</p>
             }
           }
         </div>
@@ -202,20 +215,23 @@ export class FeeSetupComponent implements OnInit {
   readonly classes = signal<ClassRoom[]>([]);
   readonly plans = signal<Plan[]>([]);
   readonly students = signal<StudentRow[]>([]);
-  readonly student = signal<StudentRow | null>(null);
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly saving = signal(false);
+  readonly assignPlan = signal(0);
 
   catName = ''; catCode = ''; catRecurring = false;
   planName = ''; planClassId = 0; planSessionId = 0;
   planLines: { feeCategoryId: number; amount: number; frequency: Frequency }[] = [this.newLine()];
   search = '';
-  assignPlanId = 0; discount = 0; schedule = '4'; firstDue = today();
+  discount = 0; schedule = '12'; firstDue = today();
   installments: Installment[] = [];
 
-  readonly plansForStudent = computed(() =>
-    this.plans().filter(p => p.isActive && p.className === this.student()?.className));
+  get assignPlanId(): number { return this.assignPlan(); }
+  set assignPlanId(v: number) { this.assignPlan.set(Number(v) || 0); }
+
+  readonly activePlans = computed(() => this.plans().filter(p => p.isActive));
+  readonly selectedPlan = computed(() => this.plans().find(p => p.id === this.assignPlan()) ?? null);
 
   ngOnInit(): void {
     this.loadCategories();
@@ -229,8 +245,13 @@ export class FeeSetupComponent implements OnInit {
     });
   }
 
-  newLine() { return { feeCategoryId: 0, amount: 0, frequency: 'Annual' as Frequency }; }
-  planTotal(): number { return this.planLines.reduce((t, l) => t + (Number(l.amount) || 0), 0); }
+  newLine() { return { feeCategoryId: 0, amount: 0, frequency: 'Monthly' as Frequency }; }
+  periods(f: Frequency): number { return { Monthly: 12, Quarterly: 4, HalfYearly: 2, Annual: 1, OneTime: 1 }[f]; }
+  perLabel(f: Frequency): string {
+    return { Monthly: 'per month', Quarterly: 'per quarter', HalfYearly: 'per half-year', Annual: 'per year', OneTime: 'once' }[f];
+  }
+  yearly(l: { amount: number; frequency: Frequency }): number { return (Number(l.amount) || 0) * this.periods(l.frequency); }
+  planTotal(): number { return this.planLines.reduce((t, l) => t + this.yearly(l), 0); }
   canSavePlan(): boolean {
     return !!this.planName.trim() && this.planClassId > 0 && this.planSessionId > 0 &&
       this.planLines.every(l => l.feeCategoryId > 0 && Number(l.amount) > 0);
@@ -250,7 +271,7 @@ export class FeeSetupComponent implements OnInit {
   savePlan(): void {
     const body = {
       name: this.planName.trim(), classId: this.planClassId, academicSessionId: this.planSessionId,
-      items: this.planLines.map(l => ({ feeCategoryId: l.feeCategoryId, amount: Number(l.amount), frequency: l.frequency, dueDay: 10 }))
+      items: this.planLines.map(l => ({ feeCategoryId: l.feeCategoryId, amount: this.yearly(l), frequency: l.frequency, dueDay: 10 }))
     };
     this.api.post('fees/structures', body).subscribe({
       next: () => { this.ok(`Fee plan "${body.name}" saved.`); this.planName = ''; this.planLines = [this.newLine()]; this.loadPlans(); },
@@ -266,14 +287,10 @@ export class FeeSetupComponent implements OnInit {
     });
   }
 
-  pickStudent(s: StudentRow): void {
-    this.student.set(s);
-    this.assignPlanId = this.plansForStudent()[0]?.id ?? 0;
-    this.buildSchedule();
-  }
+  pickStudent(): void { /* kept for template compatibility */ }
 
   payable(): number {
-    const plan = this.plans().find(p => p.id === this.assignPlanId);
+    const plan = this.selectedPlan();
     return plan ? Math.max(0, plan.totalAmount - (Number(this.discount) || 0)) : 0;
   }
   scheduleTotal(): number { return round(this.installments.reduce((t, i) => t + (Number(i.amount) || 0), 0)); }
@@ -293,17 +310,47 @@ export class FeeSetupComponent implements OnInit {
     }));
   }
 
-  assign(): void {
-    const st = this.student();
-    if (!st) return;
-    this.saving.set(true);
-    this.api.post('fees/assignments', {
-      studentId: st.id, feeStructureId: this.assignPlanId, discountAmount: Number(this.discount) || 0,
+  private assignmentBody(studentId: number) {
+    return {
+      studentId, feeStructureId: this.assignPlanId, discountAmount: Number(this.discount) || 0,
       installments: this.installments.map(i => ({ name: i.name, dueDate: i.dueDate, amount: Number(i.amount) }))
-    }).subscribe({
-      next: () => { this.saving.set(false); this.ok(`Fees assigned to ${st.fullName}. Collect payments from the Fees page.`); this.installments = []; this.assignPlanId = 0; },
+    };
+  }
+
+  assign(st: StudentRow): void {
+    this.saving.set(true);
+    this.api.post('fees/assignments', this.assignmentBody(st.id)).subscribe({
+      next: () => { this.saving.set(false); this.ok(`Fees assigned to ${st.fullName}. Collect payments from Fees → Collect.`); },
       error: r => { this.saving.set(false); this.fail(r); }
     });
+  }
+
+  async assignClass(): Promise<void> {
+    const plan = this.selectedPlan();
+    if (!plan) return;
+    this.saving.set(true);
+    this.error.set(null);
+    try {
+      const page = await firstValueFrom(this.api.get<{ items: StudentRow[] }>('students', { classId: plan.classId, pageSize: 500 }));
+      let done = 0, skipped = 0;
+      const failed: string[] = [];
+      for (const st of page.items) {
+        try {
+          await firstValueFrom(this.api.post('fees/assignments', this.assignmentBody(st.id)));
+          done++;
+        } catch (r) {
+          if ((r as { status?: number })?.status === 409) skipped++;
+          else failed.push(`${st.fullName}: ${readError(r)}`);
+        }
+      }
+      this.ok(`${plan.name}: assigned to ${done} student(s)` + (skipped ? `, ${skipped} already had it` : '') +
+        (page.items.length ? '.' : '. No students found in this class.'));
+      if (failed.length) this.error.set('Not assigned – ' + failed.join('; '));
+    } catch (r) {
+      this.fail(r);
+    } finally {
+      this.saving.set(false);
+    }
   }
 
   private ok(text: string): void { this.error.set(null); this.message.set(text); }
