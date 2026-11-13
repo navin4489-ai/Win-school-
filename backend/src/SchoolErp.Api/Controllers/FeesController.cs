@@ -69,7 +69,7 @@ public sealed class FeesController : ControllerBase
     public async Task<IActionResult> Receipt(int paymentId, CancellationToken ct)
     {
         var document = await _fees.GetReceiptAsync(paymentId, ct);
-        return File(Encoding.UTF8.GetBytes(document.Html), document.ContentType, document.FileName);
+        return File(document.Content, document.ContentType, document.FileName);
     }
 
     /// <summary>Printable fee statement for a student.</summary>
@@ -78,7 +78,7 @@ public sealed class FeesController : ControllerBase
     public async Task<IActionResult> Statement(int studentId, CancellationToken ct)
     {
         var document = await _fees.GetStatementAsync(studentId, ct);
-        return File(Encoding.UTF8.GetBytes(document.Html), document.ContentType, document.FileName);
+        return File(document.Content, document.ContentType, document.FileName);
     }
 
     [HttpGet("payments")]

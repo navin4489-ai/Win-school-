@@ -216,6 +216,6 @@ public sealed class OnlinePaymentRequest
 public sealed class FeeDocumentDto
 {
     public string FileName { get; init; } = string.Empty;
-    public string ContentType { get; init; } = "text/html; charset=utf-8";
-    public string Html { get; init; } = string.Empty;
+    public string ContentType { get; init; } = "application/pdf";
+    public byte[] Content { get; init; } = Array.Empty<byte>();
 }

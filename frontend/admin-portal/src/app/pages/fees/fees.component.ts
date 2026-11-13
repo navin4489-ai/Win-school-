@@ -663,14 +663,14 @@ export class FeesComponent implements OnInit {
 
   downloadReceipt(paymentId: number): void {
     this.api.download(`fees/payments/${paymentId}/receipt`).subscribe({
-      next: response => this.api.saveBlob(response, 'receipt.html'),
+      next: response => this.api.saveBlob(response, 'receipt.pdf'),
       error: () => this.error.set('The receipt could not be downloaded.')
     });
   }
 
   downloadStatement(studentId: number): void {
     this.api.download(`fees/students/${studentId}/statement`).subscribe({
-      next: response => this.api.saveBlob(response, 'fee-statement.html'),
+      next: response => this.api.saveBlob(response, 'fee-statement.pdf'),
       error: () => this.error.set('The fee statement could not be downloaded.')
     });
   }

@@ -392,7 +392,7 @@ class _FeesScreenState extends State<FeesScreen> {
                             ? null
                             : () => _downloadDocument(
                                   'fees/students/${_ledger!.studentId}/statement',
-                                  'Fee-Statement-${_ledger!.admissionNo}.html',
+                                  'Fee-Statement-${_ledger!.admissionNo}.pdf',
                                 ),
                         icon: const Icon(Icons.download_outlined, size: 16),
                         label: const Text('Download fee statement'),
@@ -493,7 +493,7 @@ class _FeesScreenState extends State<FeesScreen> {
                               ? null
                               : () => _downloadDocument(
                                     'fees/payments/${payment.id}/receipt',
-                                    'Receipt-${payment.receiptNo}.html',
+                                    'Receipt-${payment.receiptNo}.pdf',
                                   ),
                         ),
                       ),

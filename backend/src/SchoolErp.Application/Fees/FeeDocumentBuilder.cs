@@ -1,196 +1,223 @@
 using System.Globalization;
-using System.Text;
-using SchoolErp.Application.Fees;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+using QuestPDF.Infrastructure;
 using SchoolErp.Domain.Entities;
 
 namespace SchoolErp.Application.Fees;
 
-/// <summary>
-/// Renders printable fee documents as self-contained HTML.
-///
-/// HTML keeps the deployment free of a PDF renderer while still giving parents a
-/// receipt they can save or print from the browser (the page carries a print
-/// stylesheet, so "Save as PDF" produces a clean document).
-/// </summary>
+/// <summary>Renders fee receipts and statements as PDF documents.</summary>
 public static class FeeDocumentBuilder
 {
     private const string Accent = "#0f2c4d";
     private const string Muted = "#5b7186";
+    private const string Line = "#e3e9ef";
+    private const string Overdue = "#a8342a";
+
+    static FeeDocumentBuilder()
+    {
+        // Free community licence (organisations under USD 1M annual revenue).
+        QuestPDF.Settings.License = LicenseType.Community;
+    }
 
     public static FeeDocumentDto BuildReceipt(School school, string schoolCode, Student student,
         string className, Payment payment, string installmentName, decimal penaltyTotal)
     {
-        var currency = Format(payment.Amount);
-        var rows = new StringBuilder();
+        var lateFee = Math.Min(payment.Amount, penaltyTotal);
 
-        rows.Append(Row("Receipt number", payment.ReceiptNo));
-        rows.Append(Row("Payment date", payment.PaidAtUtc.ToString("dd MMM yyyy, HH:mm", CultureInfo.InvariantCulture)));
-        rows.Append(Row("Amount received", currency, true));
-        rows.Append(Row("Payment mode", payment.Mode.ToString()));
-        rows.Append(Row("Reference", payment.ReferenceNo ?? payment.GatewayPaymentId ?? "-"));
-
-        if (payment.RefundedAmount > 0)
-            rows.Append(Row("Refunded", "-" + Format(payment.RefundedAmount)));
-
-        var breakdown = new StringBuilder();
-        breakdown.Append(Row("Fee", Format(payment.Amount - Math.Min(payment.Amount, penaltyTotal))));
-        breakdown.Append(Row("Late fee", Format(Math.Min(payment.Amount, penaltyTotal))));
-        breakdown.Append(Row("Total paid", currency, true));
-
-        var html = Layout(
-            school,
-            "Fee Receipt",
-            $"Receipt {payment.ReceiptNo}",
-            $@"<table class='kv'>{rows}</table>
-               <h3>Breakdown</h3>
-               <table class='kv'>{breakdown}</table>
-               <p class='note'>Installment: {Escape(installmentName)}. This is a computer generated receipt.</p>",
-            "Receipt");
-
-        return new FeeDocumentDto
+        var pdf = Render(school, "Fee Receipt", $"Receipt {payment.ReceiptNo}", "RECEIPT", column =>
         {
-            FileName = $"Receipt-{payment.ReceiptNo}.html",
-            Html = html
-        };
+            KeyValues(column, new (string, string, bool)[]
+            {
+                ("Student", student.FullName, false),
+                ("Admission number", student.AdmissionNo, false),
+                ("Class", className, false),
+                ("Receipt number", payment.ReceiptNo, false),
+                ("Payment date", payment.PaidAtUtc.ToString("dd MMM yyyy, HH:mm", CultureInfo.InvariantCulture) + " UTC", false),
+                ("Payment mode", payment.Mode.ToString(), false),
+                ("Reference", payment.ReferenceNo ?? payment.GatewayPaymentId ?? "-", false),
+                ("Installment", installmentName, false)
+            });
+
+            Section(column, "Breakdown");
+            var breakdown = new List<(string, string, bool)>
+            {
+                ("Fee", Money(payment.Amount - lateFee), false),
+                ("Late fee", Money(lateFee), false)
+            };
+            if (payment.RefundedAmount > 0) breakdown.Add(("Refunded", "- " + Money(payment.RefundedAmount), false));
+            breakdown.Add(("Total paid", Money(payment.Amount), true));
+            KeyValues(column, breakdown);
+
+            Note(column, "This is a computer generated receipt and does not need a signature.");
+        });
+
+        return new FeeDocumentDto { FileName = $"Receipt-{payment.ReceiptNo}.pdf", Content = pdf };
     }
 
     public static FeeDocumentDto BuildStatement(School school, Student student, string className,
         StudentLedgerDto ledger)
     {
-        var installments = new StringBuilder();
-        foreach (var installment in ledger.Installments)
+        var pdf = Render(school, "Fee Statement", student.FullName, "STATEMENT", column =>
         {
-            var style = installment.IsOverdue ? " class='overdue'" : string.Empty;
-            installments.Append($@"<tr{style}>
-                <td>{Escape(installment.Name)}</td>
-                <td>{installment.DueDate:dd MMM yyyy}</td>
-                <td class='num'>{Format(installment.Amount)}</td>
-                <td class='num'>{Format(installment.PenaltyAmount)}</td>
-                <td class='num'>{Format(installment.PaidAmount)}</td>
-                <td class='num'>{Format(installment.Balance)}</td>
-                <td>{Escape(installment.Status.ToString())}{(installment.IsOverdue ? " (overdue)" : string.Empty)}</td>
-            </tr>");
-        }
+            var summary = new List<(string, string, bool)>
+            {
+                ("Admission number", student.AdmissionNo, false),
+                ("Class", className, false),
+                ("Total billed", Money(ledger.TotalBilled), false),
+                ("Discount", "- " + Money(ledger.Discount), false)
+            };
+            if (ledger.PlatformFee > 0) summary.Add(("Platform fee (included)", Money(ledger.PlatformFee), false));
+            summary.Add(("Total paid", Money(ledger.TotalPaid), false));
+            summary.Add(("Late fee applied", Money(ledger.PenaltyTotal), false));
+            summary.Add(("Outstanding balance", Money(ledger.Balance), true));
+            KeyValues(column, summary);
 
-        var payments = new StringBuilder();
-        foreach (var payment in ledger.Payments)
-        {
-            payments.Append($@"<tr>
-                <td>{payment.PaidAtUtc:dd MMM yyyy}</td>
-                <td>{Escape(payment.ReceiptNo)}</td>
-                <td>{Escape(payment.Mode.ToString())}</td>
-                <td class='num'>{Format(payment.Amount)}</td>
-                <td>{Escape(payment.Status.ToString())}</td>
-            </tr>");
-        }
+            Section(column, "Installments");
+            Grid(column,
+                new[] { "Installment", "Due date", "Fee", "Late fee", "Paid", "Balance", "Status" },
+                new[] { 3f, 2f, 1.6f, 1.4f, 1.6f, 1.6f, 2f },
+                new[] { false, false, true, true, true, true, false },
+                ledger.Installments.Select(i => (
+                    new[]
+                    {
+                        i.Name, i.DueDate.ToString("dd MMM yyyy", CultureInfo.InvariantCulture),
+                        Number(i.Amount), Number(i.PenaltyAmount), Number(i.PaidAmount), Number(i.Balance),
+                        i.Status + (i.IsOverdue ? " (overdue)" : string.Empty)
+                    },
+                    i.IsOverdue)).ToList());
 
-        var html = Layout(
-            school,
-            "Fee Statement",
-            student.FullName,
-            $@"<table class='kv'>
-                 {Row("Admission number", student.AdmissionNo)}
-                 {Row("Class", className)}
-                 {Row("Total billed", Format(ledger.TotalBilled))}
-                 {Row("Discount", "-" + Format(ledger.Discount))}
-                 {(ledger.PlatformFee > 0 ? Row("Platform fee (included)", Format(ledger.PlatformFee)) : string.Empty)}
-                 {Row("Total paid", Format(ledger.TotalPaid))}
-                 {Row("Late fee applied", Format(ledger.PenaltyTotal))}
-                 {Row("Outstanding balance", Format(ledger.Balance), true)}
-               </table>
-               <h3>Installments</h3>
-               <table class='grid'>
-                 <thead><tr><th>Installment</th><th>Due date</th><th class='num'>Fee</th><th class='num'>Late fee</th>
-                 <th class='num'>Paid</th><th class='num'>Balance</th><th>Status</th></tr></thead>
-                 <tbody>{installments}</tbody>
-               </table>
-               <h3>Payments</h3>
-               <table class='grid'>
-                 <thead><tr><th>Date</th><th>Receipt</th><th>Mode</th><th class='num'>Amount</th><th>Status</th></tr></thead>
-                 <tbody>{payments}</tbody>
-               </table>
-               <p class='note'>Generated on {DateTime.UtcNow:dd MMM yyyy, HH:mm} UTC. This is a computer generated statement.</p>",
-            "Statement");
+            Section(column, "Payments");
+            if (ledger.Payments.Count == 0)
+            {
+                column.Item().Text("No payments yet.").FontSize(9).FontColor(Muted);
+            }
+            else
+            {
+                Grid(column,
+                    new[] { "Date", "Receipt", "Mode", "Amount", "Status" },
+                    new[] { 2f, 3.2f, 1.8f, 1.8f, 1.6f },
+                    new[] { false, false, false, true, false },
+                    ledger.Payments.Select(p => (
+                        new[]
+                        {
+                            p.PaidAtUtc.ToString("dd MMM yyyy", CultureInfo.InvariantCulture), p.ReceiptNo,
+                            p.Mode.ToString(), Number(p.Amount), p.Status.ToString()
+                        },
+                        false)).ToList());
+            }
 
-        return new FeeDocumentDto
-        {
-            FileName = $"Fee-Statement-{student.AdmissionNo}.html",
-            Html = html
-        };
+            Note(column, $"Generated on {DateTime.UtcNow:dd MMM yyyy, HH:mm} UTC. Amounts in Indian Rupees (Rs.). " +
+                         "This is a computer generated statement.");
+        });
+
+        return new FeeDocumentDto { FileName = $"Fee-Statement-{student.AdmissionNo}.pdf", Content = pdf };
     }
 
-    private static string Layout(School school, string heading, string subHeading, string body, string tag)
+    private static byte[] Render(School school, string heading, string subHeading, string tag,
+        Action<ColumnDescriptor> body)
     {
         var schoolName = string.IsNullOrWhiteSpace(school.Name) ? "School" : school.Name;
         var address = string.Join(", ", new[]
         {
             school.AddressLine1, school.AddressLine2, school.City, school.State, school.PostalCode
         }.Where(part => !string.IsNullOrWhiteSpace(part)));
+        var contact = string.Join("  ·  ", new[] { school.Phone, school.Email }.Where(p => !string.IsNullOrWhiteSpace(p)));
 
-        return $@"<!doctype html>
-<html lang='en'>
-<head>
-<meta charset='utf-8'>
-<meta name='viewport' content='width=device-width, initial-scale=1'>
-<title>{Escape(heading)} - {Escape(schoolName)}</title>
-<style>
-  :root {{ color-scheme: light; }}
-  * {{ box-sizing: border-box; }}
-  body {{ font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; margin: 0; padding: 32px; color: #16232f; background: #f6f8fb; }}
-  .sheet {{ max-width: 820px; margin: 0 auto; background: #fff; border-radius: 14px; padding: 36px;
-            box-shadow: 0 12px 32px rgba(15, 44, 77, .10); }}
-  header {{ display: flex; justify-content: space-between; align-items: flex-start; gap: 24px;
-            border-bottom: 3px solid {Accent}; padding-bottom: 18px; margin-bottom: 24px; }}
-  h1 {{ margin: 0 0 4px; font-size: 21px; color: {Accent}; }}
-  .school {{ font-weight: 700; font-size: 16px; color: {Accent}; }}
-  .muted {{ color: {Muted}; font-size: 12px; }}
-  .tag {{ background: #eef3f8; color: {Accent}; border-radius: 999px; padding: 6px 14px;
-          font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; white-space: nowrap; }}
-  h3 {{ margin: 26px 0 10px; font-size: 14px; text-transform: uppercase; letter-spacing: .07em; color: {Muted}; }}
-  table {{ width: 100%; border-collapse: collapse; }}
-  table.kv td {{ padding: 7px 0; border-bottom: 1px solid #edf1f5; font-size: 14px; }}
-  table.kv td:first-child {{ color: {Muted}; width: 45%; }}
-  table.kv td.strong {{ font-weight: 700; color: {Accent}; }}
-  table.grid {{ font-size: 13px; border: 1px solid #e3e9ef; border-radius: 10px; overflow: hidden; }}
-  table.grid th {{ background: #f2f6fa; text-align: left; padding: 10px 12px; font-size: 11px;
-                   text-transform: uppercase; letter-spacing: .05em; color: {Muted}; }}
-  table.grid td {{ padding: 9px 12px; border-top: 1px solid #edf1f5; }}
-  .num {{ text-align: right; font-variant-numeric: tabular-nums; }}
-  tr.overdue td {{ background: #fff6f5; color: #a8342a; }}
-  .note {{ margin-top: 26px; font-size: 11px; color: {Muted}; }}
-  .actions {{ max-width: 820px; margin: 16px auto 0; display: flex; gap: 10px; }}
-  button {{ font: inherit; font-size: 13px; font-weight: 600; padding: 9px 18px; border-radius: 9px;
-            border: 1px solid {Accent}; background: {Accent}; color: #fff; cursor: pointer; }}
-  button.secondary {{ background: #fff; color: {Accent}; }}
-  @media print {{ body {{ background: #fff; padding: 0; }} .sheet {{ box-shadow: none; padding: 0; }}
-                  .actions {{ display: none; }} }}
-</style>
-</head>
-<body>
-  <div class='sheet'>
-    <header>
-      <div>
-        <div class='school'>{Escape(schoolName)}</div>
-        <div class='muted'>{Escape(address)}</div>
-        <h1>{Escape(heading)}</h1>
-        <div class='muted'>{Escape(subHeading)}</div>
-      </div>
-      <div class='tag'>{Escape(tag)}</div>
-    </header>
-    {body}
-  </div>
-  <div class='actions'>
-    <button onclick='window.print()'>Print or Save as PDF</button>
-    <button class='secondary' onclick='history.back()'>Back</button>
-  </div>
-</body>
-</html>";
+        return QuestPDF.Fluent.Document.Create(document =>
+        {
+            document.Page(page =>
+            {
+                page.Size(PageSizes.A4);
+                page.Margin(36);
+                page.DefaultTextStyle(style => style.FontSize(10).FontColor("#16232f"));
+
+                page.Header().PaddingBottom(14).BorderBottom(2).BorderColor(Accent).Row(row =>
+                {
+                    row.RelativeItem().Column(c =>
+                    {
+                        c.Item().Text(schoolName).FontSize(15).Bold().FontColor(Accent);
+                        if (address.Length > 0) c.Item().Text(address).FontSize(9).FontColor(Muted);
+                        if (contact.Length > 0) c.Item().Text(contact).FontSize(9).FontColor(Muted);
+                        c.Item().PaddingTop(8).Text(heading).FontSize(18).Bold().FontColor(Accent);
+                        c.Item().Text(subHeading).FontSize(10).FontColor(Muted);
+                    });
+                    row.ConstantItem(90).AlignRight().AlignTop()
+                        .Background("#eef3f8").Padding(6).AlignCenter()
+                        .Text(tag).FontSize(8).Bold().FontColor(Accent).LetterSpacing(0.08f);
+                });
+
+                page.Content().PaddingTop(16).Column(column =>
+                {
+                    column.Spacing(4);
+                    body(column);
+                });
+
+                page.Footer().AlignCenter().Text(text =>
+                {
+                    text.DefaultTextStyle(s => s.FontSize(8).FontColor(Muted));
+                    text.Span("Page ");
+                    text.CurrentPageNumber();
+                    text.Span(" of ");
+                    text.TotalPages();
+                });
+            });
+        }).GeneratePdf();
     }
 
-    private static string Row(string label, string value, bool strong = false) =>
-        $"<tr><td>{Escape(label)}</td><td{(strong ? " class='strong'" : string.Empty)}>{Escape(value)}</td></tr>";
+    private static void KeyValues(ColumnDescriptor column, IEnumerable<(string Label, string Value, bool Strong)> rows)
+    {
+        column.Item().Table(table =>
+        {
+            table.ColumnsDefinition(c => { c.RelativeColumn(2); c.RelativeColumn(3); });
+            foreach (var (label, value, strong) in rows)
+            {
+                table.Cell().BorderBottom(1).BorderColor("#edf1f5").PaddingVertical(5).Text(label).FontColor(Muted);
+                var cell = table.Cell().BorderBottom(1).BorderColor("#edf1f5").PaddingVertical(5).Text(value);
+                if (strong) cell.Bold().FontColor(Accent).FontSize(11);
+            }
+        });
+    }
 
-    private static string Format(decimal value) => value.ToString("N2", CultureInfo.InvariantCulture);
+    private static void Grid(ColumnDescriptor column, string[] headers, float[] widths, bool[] numeric,
+        IReadOnlyList<(string[] Cells, bool Highlight)> rows)
+    {
+        column.Item().Border(1).BorderColor(Line).Table(table =>
+        {
+            table.ColumnsDefinition(c => { foreach (var w in widths) c.RelativeColumn(w); });
 
-    private static string Escape(string? value) => System.Net.WebUtility.HtmlEncode(value ?? string.Empty);
+            table.Header(header =>
+            {
+                for (var i = 0; i < headers.Length; i++)
+                {
+                    var cell = header.Cell().Background("#f2f6fa").Padding(6);
+                    (numeric[i] ? cell.AlignRight() : cell).Text(headers[i].ToUpperInvariant())
+                        .FontSize(7.5f).Bold().FontColor(Muted);
+                }
+            });
+
+            foreach (var (cells, highlight) in rows)
+            {
+                for (var i = 0; i < cells.Length; i++)
+                {
+                    var cell = table.Cell().BorderTop(1).BorderColor("#edf1f5").Padding(6);
+                    if (highlight) cell = cell.Background("#fff6f5");
+                    var text = (numeric[i] ? cell.AlignRight() : cell).Text(cells[i]).FontSize(9);
+                    if (highlight) text.FontColor(Overdue);
+                }
+            }
+        });
+    }
+
+    private static void Section(ColumnDescriptor column, string title) =>
+        column.Item().PaddingTop(16).PaddingBottom(4).Text(title.ToUpperInvariant())
+            .FontSize(9).Bold().FontColor(Muted).LetterSpacing(0.06f);
+
+    private static void Note(ColumnDescriptor column, string text) =>
+        column.Item().PaddingTop(20).Text(text).FontSize(8).FontColor(Muted);
+
+    private static string Money(decimal value) => "Rs. " + Number(value);
+
+    private static string Number(decimal value) =>
+        value.ToString("#,##,##0.00", CultureInfo.GetCultureInfo("en-IN"));
 }

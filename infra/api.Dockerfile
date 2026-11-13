@@ -15,6 +15,12 @@ RUN dotnet publish backend/src/SchoolErp.Api/SchoolErp.Api.csproj -c Release -o 
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
 WORKDIR /app
+
+# Fonts for PDF receipts and statements (QuestPDF).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends libfontconfig1 fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app .
 
 # Uploads are written here. Mount a persistent disk at this path on a paid plan.
