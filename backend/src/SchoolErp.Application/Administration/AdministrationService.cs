@@ -411,7 +411,10 @@ public sealed class AdministrationService
 
         entity.Name = request.Name.Trim();
         entity.Capacity = request.Capacity;
-        entity.ClassTeacherId = request.ClassTeacherId;
+        if (request.ClassTeacherId is > 0 &&
+            !await _db.Employees.AnyAsync(e => e.Id == request.ClassTeacherId && e.SchoolId == SchoolId && !e.IsDeleted, ct))
+            throw DomainException.NotFound("Class teacher");
+        entity.ClassTeacherId = request.ClassTeacherId is > 0 ? request.ClassTeacherId : null;
 
         await _uow.SaveChangesAsync(ct);
         return new SectionDto
@@ -601,6 +604,10 @@ public sealed class AdministrationService
             ?? throw DomainException.NotFound("Section");
         if (section.ClassId != request.ClassId)
             throw DomainException.Validation("The section does not belong to the selected class.");
+        if (!await _db.Subjects.AnyAsync(s => s.Id == request.SubjectId && s.SchoolId == SchoolId && !s.IsDeleted, ct))
+            throw DomainException.NotFound("Subject");
+        if (!await _db.Employees.AnyAsync(e => e.Id == request.EmployeeId && e.SchoolId == SchoolId && !e.IsDeleted, ct))
+            throw DomainException.NotFound("Teacher");
 
         var conflict = await _db.TimetableEntries.AnyAsync(t =>
             t.SchoolId == SchoolId && t.Id != (id ?? 0) && t.DayOfWeek == request.DayOfWeek &&

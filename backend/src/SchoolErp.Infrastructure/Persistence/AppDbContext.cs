@@ -272,6 +272,9 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                         break;
 
                     case EntityState.Deleted:
+                        if (schoolId.HasValue && auditable.SchoolId != schoolId.Value && !_currentUser.IsPlatformAdmin)
+                            throw DomainException.Forbidden("Cannot delete a record that belongs to another school.");
+
                         entry.State = EntityState.Modified;
                         auditable.IsDeleted = true;
                         auditable.ModifiedAtUtc = now;

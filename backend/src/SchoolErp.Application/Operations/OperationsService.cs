@@ -58,6 +58,12 @@ public sealed class OperationsService
         var email = request.Email.Trim().ToLowerInvariant();
         var duplicate = await _db.Employees.AnyAsync(e => e.SchoolId == SchoolId && e.Email == email && !e.IsDeleted, ct);
         if (duplicate) throw DomainException.Conflict("An employee with this email already exists.");
+        if (request.DepartmentId is > 0 &&
+            !await _db.Departments.AnyAsync(d => d.Id == request.DepartmentId && d.SchoolId == SchoolId && !d.IsDeleted, ct))
+            throw DomainException.NotFound("Department");
+        if (request.DesignationId is > 0 &&
+            !await _db.Designations.AnyAsync(d => d.Id == request.DesignationId && d.SchoolId == SchoolId && !d.IsDeleted, ct))
+            throw DomainException.NotFound("Designation");
 
         var employee = new Employee
         {
@@ -385,6 +391,9 @@ public sealed class OperationsService
         var duplicate = await _db.TransportAllocations.AnyAsync(a =>
             a.SchoolId == SchoolId && a.StudentId == student.Id && a.IsActive && !a.IsDeleted, ct);
         if (duplicate) throw DomainException.Conflict("The student already has an active transport allocation.");
+        if (request.TransportStopId is > 0 && !await _db.TransportStops.AnyAsync(s =>
+                s.Id == request.TransportStopId && s.TransportRouteId == route.Id && s.SchoolId == SchoolId && !s.IsDeleted, ct))
+            throw DomainException.NotFound("Stop on this route");
 
         var allocation = new TransportAllocation
         {
@@ -644,6 +653,12 @@ public sealed class OperationsService
     {
         var subject = await _db.Subjects.FirstOrDefaultAsync(s => s.Id == request.SubjectId && s.SchoolId == SchoolId && !s.IsDeleted, ct)
             ?? throw DomainException.NotFound("Subject");
+        if (request.ClassId is > 0 &&
+            !await _db.Classes.AnyAsync(c => c.Id == request.ClassId && c.SchoolId == SchoolId && !c.IsDeleted, ct))
+            throw DomainException.NotFound("Class");
+        if (request.SectionId is > 0 && !await _db.Sections.AnyAsync(s =>
+                s.Id == request.SectionId && s.ClassId == request.ClassId && s.SchoolId == SchoolId && !s.IsDeleted, ct))
+            throw DomainException.NotFound("Section of this class");
 
         var material = new StudyMaterial
         {

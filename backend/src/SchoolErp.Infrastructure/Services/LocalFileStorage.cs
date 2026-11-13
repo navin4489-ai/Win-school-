@@ -22,11 +22,14 @@ public sealed class LocalFileStorage : IFileStorage
 {
     private readonly StorageOptions _options;
     private readonly IHostEnvironment _environment;
+    private readonly ICurrentUser _user;
 
-    public LocalFileStorage(Microsoft.Extensions.Options.IOptions<StorageOptions> options, IHostEnvironment environment)
+    public LocalFileStorage(Microsoft.Extensions.Options.IOptions<StorageOptions> options, IHostEnvironment environment,
+        ICurrentUser user)
     {
         _options = options.Value;
         _environment = environment;
+        _user = user;
     }
 
     private string Root => Path.IsPathRooted(_options.RootPath)
@@ -39,7 +42,9 @@ public sealed class LocalFileStorage : IFileStorage
         var extension = Path.GetExtension(fileName);
         if (extension.Length > 16) extension = string.Empty;
 
-        var relativeDirectory = DateTime.UtcNow.ToString("yyyy/MM");
+        // Each school's uploads live in their own folder.
+        var schoolFolder = _user.SchoolId is int schoolId ? $"school-{schoolId}" : "shared";
+        var relativeDirectory = $"{schoolFolder}/{DateTime.UtcNow:yyyy/MM}";
         var directory = Path.Combine(Root, relativeDirectory.Replace('/', Path.DirectorySeparatorChar));
         Directory.CreateDirectory(directory);
 
