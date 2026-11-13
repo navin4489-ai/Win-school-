@@ -74,10 +74,10 @@ services:
       # Same-origin API: the portal calls /api and /files, forwarded to the API service.
       - type: rewrite
         source: /api/*
-        destination: https://school-erp-api.onrender.com/api/*
+        destination: https://school-erp-api-3j9e.onrender.com/api/*
       - type: rewrite
         source: /files/*
-        destination: https://school-erp-api.onrender.com/files/*
+        destination: https://school-erp-api-3j9e.onrender.com/files/*
       # Angular client-side routing.
       - type: rewrite
         source: /*
