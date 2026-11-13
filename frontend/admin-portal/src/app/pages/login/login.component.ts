@@ -45,7 +45,7 @@ import { AuthService } from '../../core/auth.service';
           <div class="mobile-brand"><div class="logo">W</div><strong>Wintech School ERP</strong></div>
 
           <h2>Welcome back</h2>
-          <p class="lead">Sign in with your email and password.</p>
+          <p class="lead">Staff: use your email. Parents: use your child's admission number.</p>
 
           @if (error()) {
             <div class="alert" role="alert">{{ error() }}</div>
@@ -53,10 +53,10 @@ import { AuthService } from '../../core/auth.service';
 
           <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
             <label class="input-group">
-              <span class="label">Email</span>
+              <span class="label">Email or admission number</span>
               <div class="input-wrap" [class.invalid]="touchedInvalid('email')">
                 <span class="icon">✉</span>
-                <input type="email" formControlName="email" autocomplete="username" placeholder="you@school.edu" />
+                <input type="text" formControlName="email" autocomplete="username" placeholder="you@school.edu or STU-2026-00001" />
               </div>
             </label>
 
@@ -189,7 +189,7 @@ export class LoginComponent {
   ];
 
   readonly form = this.fb.nonNullable.group({
-    email: ['', [Validators.required, Validators.email]],
+    email: ['', [Validators.required]],
     password: ['', [Validators.required]]
   });
 

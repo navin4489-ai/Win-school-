@@ -422,7 +422,9 @@ export class AdmissionsComponent implements OnInit {
           this.enrolling.set(null);
           this.message.set(
             `${row.firstName} ${row.lastName} enrolled as ${result.admissionNo}.` +
-            (result.temporaryPassword ? ` Temporary parent password: ${result.temporaryPassword}` : '')
+            (result.temporaryPassword
+              ? ` Parent login: ${result.admissionNo} / temporary password ${result.temporaryPassword}`
+              : '')
           );
           this.load();
         },

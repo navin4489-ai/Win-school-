@@ -279,9 +279,16 @@ public sealed class AdmissionService
 
             int? parentUserId = null;
             string? temporaryPassword = null;
-            if (request.CreateParentLogin && !string.IsNullOrWhiteSpace(admission.GuardianEmail))
+            if (request.CreateParentLogin && guardian.UserAccountId is not null)
             {
-                var email = admission.GuardianEmail!.Trim().ToLowerInvariant();
+                parentUserId = guardian.UserAccountId;
+            }
+            else if (request.CreateParentLogin)
+            {
+                // Parents sign in with the admission number; the email is only a fallback ID.
+                var email = string.IsNullOrWhiteSpace(admission.GuardianEmail)
+                    ? $"{student.AdmissionNo.ToLowerInvariant()}@parent.local"
+                    : admission.GuardianEmail!.Trim().ToLowerInvariant();
                 var existingUser = await _db.UserAccounts.IgnoreQueryFilters()
                     .FirstOrDefaultAsync(u => u.SchoolId == SchoolId && u.NormalizedEmail == email && !u.IsDeleted, token);
 

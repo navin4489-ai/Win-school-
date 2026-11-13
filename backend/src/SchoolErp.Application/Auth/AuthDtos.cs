@@ -4,7 +4,8 @@ namespace SchoolErp.Application.Auth;
 
 public sealed class LoginRequest
 {
-    [Required, EmailAddress, MaxLength(200)] public string Email { get; set; } = string.Empty;
+    /// <summary>Email address, or a student's admission number for parent/student sign-in.</summary>
+    [Required, MaxLength(256)] public string Email { get; set; } = string.Empty;
     [Required, MinLength(8), MaxLength(128)] public string Password { get; set; } = string.Empty;
     [MaxLength(30)] public string? SchoolCode { get; set; }
 }

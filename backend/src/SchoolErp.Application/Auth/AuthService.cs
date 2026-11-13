@@ -32,8 +32,29 @@ public sealed class AuthService
     public async Task<AuthResponse> LoginAsync(LoginRequest request, CancellationToken ct = default)
     {
         var normalized = request.Email.Trim().ToLowerInvariant();
-        var query = _db.UserAccounts.IgnoreQueryFilters()
-            .Where(u => !u.IsDeleted && u.NormalizedEmail == normalized);
+        IQueryable<UserAccount> query;
+
+        if (normalized.Contains('@'))
+        {
+            query = _db.UserAccounts.IgnoreQueryFilters()
+                .Where(u => !u.IsDeleted && u.NormalizedEmail == normalized);
+        }
+        else
+        {
+            // Admission number: the student's own account and the accounts of their guardians.
+            var admissionNo = request.Email.Trim().ToUpperInvariant();
+            var students = await _db.Students.IgnoreQueryFilters()
+                .Where(s => !s.IsDeleted && s.AdmissionNo.ToUpper() == admissionNo)
+                .Select(s => s.Id).ToListAsync(ct);
+            var guardianIds = await _db.StudentParents.IgnoreQueryFilters()
+                .Where(p => !p.IsDeleted && students.Contains(p.StudentId))
+                .Select(p => p.GuardianId).ToListAsync(ct);
+
+            query = _db.UserAccounts.IgnoreQueryFilters()
+                .Where(u => !u.IsDeleted &&
+                            ((u.StudentId != null && students.Contains(u.StudentId.Value)) ||
+                             (u.GuardianId != null && guardianIds.Contains(u.GuardianId.Value))));
+        }
 
         if (!string.IsNullOrWhiteSpace(request.SchoolCode))
         {
