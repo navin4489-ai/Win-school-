@@ -185,6 +185,15 @@ public sealed class FeeService
 
             var net = Math.Round(structure.TotalAmount - discount, 2, MidpointRounding.AwayFromZero);
             var platformFee = await PlatformFeeForSessionAsync(structure.AcademicSessionId, token);
+            if (platformFee > 0)
+            {
+                // Charged once per student per session, however many fee plans they have.
+                var alreadyCharged = await _db.StudentFeeAssignments
+                    .Where(a => a.SchoolId == SchoolId && a.StudentId == student.Id &&
+                                a.AcademicSessionId == structure.AcademicSessionId && a.IsActive && !a.IsDeleted)
+                    .SumAsync(a => a.PlatformFeeAmount, token);
+                platformFee = Math.Max(0, platformFee - alreadyCharged);
+            }
 
             var assignment = new StudentFeeAssignment
             {
