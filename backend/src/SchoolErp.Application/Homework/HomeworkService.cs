@@ -204,6 +204,9 @@ public sealed class HomeworkService
             if (assigned || _user.IsInRole(RoleCodes.Principal) || _user.IsInRole(RoleCodes.Administrator) ||
                 _user.IsInRole(RoleCodes.SuperAdmin))
                 return _user.EmployeeId.Value;
+
+            if (_user.IsInRole(RoleCodes.Teacher) || _user.IsInRole(RoleCodes.ClassCoordinator))
+                throw DomainException.Forbidden("You are not assigned to this class and section. Ask the principal to assign you under Class & teachers.");
         }
 
         var sectionTeacher = await _db.Sections.Where(s => s.Id == sectionId && s.ClassTeacherId != null)

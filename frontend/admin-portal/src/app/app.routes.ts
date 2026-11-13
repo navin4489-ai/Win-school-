@@ -69,20 +69,7 @@ export const routes: Routes = [
       },
       {
         path: 'homework',
-        loadComponent: () => import('./pages/directory/directory.component').then(m => m.DirectoryComponent),
-        data: {
-          title: 'Homework',
-          subtitle: 'Assignments, submissions and grading across classes.',
-          endpoint: 'homework',
-          columns: [
-            { key: 'title', label: 'Title' },
-            { key: 'subjectName', label: 'Subject' },
-            { key: 'teacherName', label: 'Teacher' },
-            { key: 'dueAtUtc', label: 'Due' },
-            { key: 'submissionCount', label: 'Submissions' },
-            { key: 'isOverdue', label: 'Overdue', badge: true }
-          ]
-        }
+        loadComponent: () => import('./pages/homework/homework.component').then(m => m.HomeworkComponent)
       },
       {
         path: 'hr',
