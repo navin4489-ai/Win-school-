@@ -23,30 +23,3 @@ public sealed class LogNotificationSender : INotificationSender
         return Task.CompletedTask;
     }
 }
-
-/// <summary>
-/// Stub gateway used until Razorpay/Cashfree credentials are configured.
-/// It never contacts the network and is intentionally marked so in configuration.
-/// </summary>
-public sealed class StubPaymentGateway : IPaymentGateway
-{
-    private readonly ILogger<StubPaymentGateway> _logger;
-
-    public StubPaymentGateway(ILogger<StubPaymentGateway> logger) => _logger = logger;
-
-    public string Name => "Stub";
-
-    public Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount,
-        CancellationToken ct = default)
-    {
-        _logger.LogWarning("Stub payment verification for order {OrderId}, payment {PaymentId}, amount {Amount}",
-            orderId, paymentId, amount);
-        return Task.FromResult(new GatewayVerification(true, paymentId, null, "stub"));
-    }
-
-    public Task<GatewayVerification> RefundAsync(string paymentId, decimal amount, CancellationToken ct = default)
-    {
-        _logger.LogWarning("Stub refund for payment {PaymentId}, amount {Amount}", paymentId, amount);
-        return Task.FromResult(new GatewayVerification(true, paymentId, null, "stub"));
-    }
-}

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 class ApiException implements Exception {
   ApiException(this.statusCode, this.message);
@@ -48,6 +49,54 @@ class ApiClient {
 
   Future<dynamic> put(String path, {Object? body}) =>
       _request('PUT', path, body: body);
+
+  /// Uploads a single file and returns the decoded JSON response.
+  Future<dynamic> upload(
+    String path, {
+    required String fieldName,
+    required String fileName,
+    required List<int> bytes,
+    String contentType = 'application/octet-stream',
+  }) async {
+    final request = http.MultipartRequest('POST', Uri.parse('$baseUrl/$path'));
+    if (accessToken != null) {
+      request.headers['Authorization'] = 'Bearer $accessToken';
+    }
+    request.files.add(
+      http.MultipartFile.fromBytes(
+        fieldName,
+        bytes,
+        filename: fileName,
+        contentType: MediaType.parse(contentType),
+      ),
+    );
+
+    final streamed = await _client.send(request).timeout(const Duration(seconds: 45));
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) {
+      if (response.body.isEmpty) return null;
+      return jsonDecode(response.body);
+    }
+
+    throw ApiException(response.statusCode, _message(response));
+  }
+
+  /// Downloads a binary document such as a receipt or a fee statement.
+  Future<List<int>> download(String path, {Map<String, String>? query}) async {
+    final uri = Uri.parse('$baseUrl/$path').replace(queryParameters: query);
+    final request = http.Request('GET', uri);
+    if (accessToken != null) {
+      request.headers['Authorization'] = 'Bearer $accessToken';
+    }
+
+    final streamed = await _client.send(request).timeout(const Duration(seconds: 45));
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode >= 200 && response.statusCode < 300) return response.bodyBytes;
+
+    throw ApiException(response.statusCode, _message(response));
+  }
 
   Future<dynamic> _request(
     String method,

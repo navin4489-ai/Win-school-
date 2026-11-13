@@ -44,6 +44,16 @@ export const routes: Routes = [
         loadComponent: () => import('./pages/attendance/attendance.component').then(m => m.AttendanceComponent)
       },
       {
+        path: 'my-attendance',
+        canActivate: [permissionGuard('attendance.mark')],
+        loadComponent: () => import('./pages/attendance/my-attendance.component').then(m => m.MyAttendanceComponent)
+      },
+      {
+        path: 'assignments',
+        canActivate: [permissionGuard('settings.manage')],
+        loadComponent: () => import('./pages/assignments/assignments.component').then(m => m.AssignmentsComponent)
+      },
+      {
         path: 'exams',
         canActivate: [permissionGuard('exams.read')],
         loadComponent: () => import('./pages/exams/exams.component').then(m => m.ExamsComponent)
@@ -150,18 +160,17 @@ export const routes: Routes = [
       {
         path: 'settings',
         canActivate: [permissionGuard('settings.manage')],
-        loadComponent: () => import('./pages/directory/directory.component').then(m => m.DirectoryComponent),
-        data: {
-          title: 'Settings',
-          subtitle: 'School profile, sessions, classes and permission matrix.',
-          endpoint: 'admin/classes',
-          columns: [
-            { key: 'name', label: 'Class' },
-            { key: 'code', label: 'Code' },
-            { key: 'stream', label: 'Stream' },
-            { key: 'displayOrder', label: 'Order' }
-          ]
-        }
+        loadComponent: () => import('./pages/settings/classes.component').then(m => m.ClassesComponent)
+      },
+      {
+        path: 'schools',
+        canActivate: [permissionGuard('platform.schools')],
+        loadComponent: () => import('./pages/platform/schools.component').then(m => m.SchoolsComponent)
+      },
+      {
+        path: 'users',
+        canActivate: [permissionGuard('users.manage')],
+        loadComponent: () => import('./pages/platform/users.component').then(m => m.UsersComponent)
       },
       {
         path: 'forbidden',

@@ -92,7 +92,7 @@ class _ResultsScreenState extends State<ResultsScreen> {
         children: [
           if (_exams.isNotEmpty)
             DropdownButtonFormField<int>(
-              value: _selected?.id,
+              initialValue: _selected?.id,
               decoration: const InputDecoration(labelText: 'Examination'),
               items: _exams
                   .map((exam) => DropdownMenuItem(value: exam.id, child: Text(exam.name)))

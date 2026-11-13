@@ -57,6 +57,35 @@ public sealed class NotificationService
         await _uow.SaveChangesAsync(ct);
     }
 
+    public async Task<int> CountUnreadAsync(CancellationToken ct = default)
+    {
+        var userId = _user.UserId;
+        var guardianId = _user.GuardianId;
+
+        return await _db.Notifications.CountAsync(n =>
+            n.SchoolId == SchoolId && !n.IsDeleted && n.ReadAtUtc == null &&
+            ((userId != null && n.UserAccountId == userId) || (guardianId != null && n.GuardianId == guardianId)), ct);
+    }
+
+    public async Task MarkAllReadAsync(CancellationToken ct = default)
+    {
+        var userId = _user.UserId;
+        var guardianId = _user.GuardianId;
+
+        var pending = await _db.Notifications
+            .Where(n => n.SchoolId == SchoolId && !n.IsDeleted && n.ReadAtUtc == null &&
+                        ((userId != null && n.UserAccountId == userId) || (guardianId != null && n.GuardianId == guardianId)))
+            .ToListAsync(ct);
+
+        foreach (var notification in pending)
+        {
+            notification.ReadAtUtc = _clock.UtcNow;
+            notification.Status = NotificationStatus.Read;
+        }
+
+        if (pending.Count > 0) await _uow.SaveChangesAsync(ct);
+    }
+
     public async Task<int> BroadcastAsync(BroadcastRequest request, CancellationToken ct = default)
     {
         var roles = request.Audience.ToLowerInvariant() switch

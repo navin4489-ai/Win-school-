@@ -57,8 +57,8 @@ public sealed class DashboardService
             join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
             where i.SchoolId == SchoolId && !i.IsDeleted && !a.IsDeleted && a.IsActive &&
                   i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
-                  i.Amount > i.PaidAmount
-            select i.Amount - i.PaidAmount).SumAsync(ct);
+                  i.Amount + i.PenaltyAmount > i.PaidAmount
+            select i.Amount + i.PenaltyAmount - i.PaidAmount).SumAsync(ct);
 
         var todayRecords = await _db.StudentAttendances
             .Where(a => a.SchoolId == SchoolId && a.AttendanceDate == today && !a.IsDeleted)
@@ -242,8 +242,8 @@ public sealed class DashboardService
             join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
             where studentIds.Contains(a.StudentId) && i.SchoolId == SchoolId && !i.IsDeleted && !a.IsDeleted &&
                   a.IsActive && i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
-                  i.Amount > i.PaidAmount
-            select i.Amount - i.PaidAmount).SumAsync(ct);
+                  i.Amount + i.PenaltyAmount > i.PaidAmount
+            select i.Amount + i.PenaltyAmount - i.PaidAmount).SumAsync(ct);
 
         var monthStart = new DateOnly(today.Year, today.Month, 1);
         var weekStart = today.AddDays(-6);

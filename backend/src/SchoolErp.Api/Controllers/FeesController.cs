@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using SchoolErp.Application.Common;
 using SchoolErp.Application.Fees;
 using SchoolErp.Domain.Entities;
+using System.Text;
 
 namespace SchoolErp.Api.Controllers;
 
@@ -49,6 +50,36 @@ public sealed class FeesController : ControllerBase
     [Authorize(Policy = "permission:fees.collect")]
     public async Task<ActionResult<PaymentDto>> RecordPayment(RecordPaymentRequest request, CancellationToken ct) =>
         Ok(await _fees.RecordPaymentAsync(request, ct));
+
+    /// <summary>Opens a payment session at the gateway. Parents may do this for their own children.</summary>
+    [HttpPost("payments/order")]
+    [Authorize(Policy = "permission:fees.read")]
+    public async Task<ActionResult<PaymentOrderDto>> CreateOrder(CreatePaymentOrderRequest request,
+        CancellationToken ct) => Ok(await _fees.CreatePaymentOrderAsync(request, ct));
+
+    /// <summary>Completes an online payment. Parents may do this for their own children.</summary>
+    [HttpPost("payments/online")]
+    [Authorize(Policy = "permission:fees.read")]
+    public async Task<ActionResult<PaymentDto>> CompleteOnlinePayment(OnlinePaymentRequest request,
+        CancellationToken ct) => Ok(await _fees.RecordOnlinePaymentAsync(request, ct));
+
+    /// <summary>Printable receipt for a payment.</summary>
+    [HttpGet("payments/{paymentId:int}/receipt")]
+    [Authorize(Policy = "permission:fees.read")]
+    public async Task<IActionResult> Receipt(int paymentId, CancellationToken ct)
+    {
+        var document = await _fees.GetReceiptAsync(paymentId, ct);
+        return File(Encoding.UTF8.GetBytes(document.Html), document.ContentType, document.FileName);
+    }
+
+    /// <summary>Printable fee statement for a student.</summary>
+    [HttpGet("students/{studentId:int}/statement")]
+    [Authorize(Policy = "permission:fees.read")]
+    public async Task<IActionResult> Statement(int studentId, CancellationToken ct)
+    {
+        var document = await _fees.GetStatementAsync(studentId, ct);
+        return File(Encoding.UTF8.GetBytes(document.Html), document.ContentType, document.FileName);
+    }
 
     [HttpGet("payments")]
     [Authorize(Policy = "permission:fees.read")]

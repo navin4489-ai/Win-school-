@@ -44,6 +44,8 @@ public sealed class CurrentUserService : ICurrentUser
 
     public bool IsAuthenticated => Principal?.Identity?.IsAuthenticated == true;
 
+    public bool IsSystemContext => _http.HttpContext is null;
+
     public IReadOnlyCollection<string> Permissions => Principal?
         .FindAll("permission")
         .Select(c => c.Value)

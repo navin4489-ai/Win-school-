@@ -170,7 +170,8 @@ public sealed class ReportService
             join s in _db.Students on a.StudentId equals s.Id
             join klass in _db.Classes on s.ClassId equals klass.Id
             where i.SchoolId == SchoolId && !i.IsDeleted && a.IsActive &&
-                  i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived && i.Amount > i.PaidAmount
+                  i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
+                  i.Amount + i.PenaltyAmount > i.PaidAmount
             select new { i, s, ClassName = klass.Name };
 
         if (classId is > 0) query = query.Where(x => x.s.ClassId == classId);
@@ -180,7 +181,7 @@ public sealed class ReportService
         result.AddRange(rows.GroupBy(x => x.s.Id).Select(g => new[]
         {
             g.First().s.FullName, g.First().s.AdmissionNo, g.First().ClassName,
-            g.Sum(x => x.i.Amount - x.i.PaidAmount).ToString("0.00"),
+            g.Sum(x => x.i.Amount + x.i.PenaltyAmount - x.i.PaidAmount).ToString("0.00"),
             g.Min(x => x.i.DueDate).ToString("yyyy-MM-dd")
         }));
         return result;

@@ -80,6 +80,8 @@ public sealed class InstallmentDto
     public DateOnly DueDate { get; init; }
     public decimal Amount { get; init; }
     public decimal PaidAmount { get; init; }
+    public decimal PenaltyAmount { get; init; }
+    public decimal TotalAmount { get; init; }
     public decimal Balance { get; init; }
     public InstallmentStatus Status { get; init; }
     public bool IsOverdue { get; init; }
@@ -110,6 +112,7 @@ public sealed class StudentLedgerDto
     public decimal TotalPaid { get; init; }
     public decimal Balance { get; init; }
     public decimal Overdue { get; init; }
+    public decimal PenaltyTotal { get; init; }
     public IReadOnlyList<InstallmentDto> Installments { get; init; } = Array.Empty<InstallmentDto>();
     public IReadOnlyList<PaymentDto> Payments { get; init; } = Array.Empty<PaymentDto>();
 }
@@ -174,4 +177,43 @@ public sealed class ReminderResult
 {
     public int Queued { get; init; }
     public int Skipped { get; init; }
+}
+
+public sealed class CreatePaymentOrderRequest
+{
+    [Range(1, int.MaxValue)] public int StudentId { get; set; }
+    [Range(0.01, 10_000_000)] public decimal Amount { get; set; }
+    public int? FeeInstallmentId { get; set; }
+}
+
+/// <summary>A payment session opened with the gateway, ready to be shown at checkout.</summary>
+public sealed class PaymentOrderDto
+{
+    public string OrderId { get; init; } = string.Empty;
+    public string PaymentId { get; init; } = string.Empty;
+    public decimal Amount { get; init; }
+    public string Currency { get; init; } = "INR";
+    public string CheckoutUrl { get; init; } = string.Empty;
+    public DateTime ExpiresAtUtc { get; init; }
+    public string Gateway { get; init; } = string.Empty;
+    public int StudentId { get; init; }
+    public string StudentName { get; init; } = string.Empty;
+    public string? InstallmentName { get; init; }
+}
+
+public sealed class OnlinePaymentRequest
+{
+    [Range(1, int.MaxValue)] public int StudentId { get; set; }
+    public int? FeeInstallmentId { get; set; }
+    [Range(0.01, 10_000_000)] public decimal Amount { get; set; }
+    [Required, MaxLength(100)] public string GatewayOrderId { get; set; } = string.Empty;
+    [Required, MaxLength(100)] public string GatewayPaymentId { get; set; } = string.Empty;
+    [MaxLength(100)] public string? IdempotencyKey { get; set; }
+}
+
+public sealed class FeeDocumentDto
+{
+    public string FileName { get; init; } = string.Empty;
+    public string ContentType { get; init; } = "text/html; charset=utf-8";
+    public string Html { get; init; } = string.Empty;
 }

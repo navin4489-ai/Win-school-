@@ -23,6 +23,159 @@ public sealed class AdministrationService
 
     private int SchoolId => _user.SchoolId ?? throw DomainException.Unauthorized();
 
+    // ---------- Teacher assignments ----------
+
+    public async Task<List<TeacherAssignmentDto>> GetTeacherAssignmentsAsync(int? classId, int? sectionId,
+        CancellationToken ct = default)
+    {
+        var query =
+            from t in _db.TeacherAssignments
+            join e in _db.Employees on t.EmployeeId equals e.Id
+            join c in _db.Classes on t.ClassId equals c.Id
+            join s in _db.Sections on t.SectionId equals s.Id
+            where t.SchoolId == SchoolId && !t.IsDeleted && !e.IsDeleted
+            select new { t, e, c, s };
+
+        if (classId is > 0) query = query.Where(x => x.t.ClassId == classId);
+        if (sectionId is > 0) query = query.Where(x => x.t.SectionId == sectionId);
+
+        var rows = await query.OrderBy(x => x.c.DisplayOrder).ThenBy(x => x.s.Name).ThenBy(x => x.e.FirstName)
+            .ToListAsync(ct);
+
+        var subjectIds = rows.Where(x => x.t.SubjectId is not null).Select(x => x.t.SubjectId!.Value).Distinct().ToList();
+        var subjects = await _db.Subjects.Where(s => subjectIds.Contains(s.Id))
+            .ToDictionaryAsync(s => s.Id, s => s.Name, ct);
+
+        return rows.Select(x => new TeacherAssignmentDto
+        {
+            Id = x.t.Id,
+            EmployeeId = x.e.Id,
+            EmployeeName = x.e.FullName,
+            EmployeeNo = x.e.EmployeeNo,
+            ClassId = x.c.Id,
+            ClassName = x.c.Name,
+            SectionId = x.s.Id,
+            SectionName = x.s.Name,
+            SubjectId = x.t.SubjectId,
+            SubjectName = x.t.SubjectId is null ? null : subjects.GetValueOrDefault(x.t.SubjectId.Value),
+            IsClassTeacher = x.t.IsClassTeacher
+        }).ToList();
+    }
+
+    public async Task<TeacherAssignmentDto> SaveTeacherAssignmentAsync(int? id, SaveTeacherAssignmentRequest request,
+        CancellationToken ct = default)
+    {
+        var employee = await _db.Employees
+            .FirstOrDefaultAsync(e => e.Id == request.EmployeeId && e.SchoolId == SchoolId && !e.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Employee");
+
+        if (employee.Status != EmploymentStatus.Active)
+            throw DomainException.Validation("Only an active employee can be assigned.");
+
+        var section = await _db.Sections
+            .FirstOrDefaultAsync(s => s.Id == request.SectionId && s.SchoolId == SchoolId && !s.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Section");
+
+        if (section.ClassId != request.ClassId)
+            throw DomainException.Validation("The section does not belong to the class.");
+
+        if (request.SubjectId is > 0)
+        {
+            var subjectExists = await _db.Subjects.AnyAsync(s => s.Id == request.SubjectId && s.SchoolId == SchoolId && !s.IsDeleted, ct);
+            if (!subjectExists) throw DomainException.NotFound("Subject");
+        }
+
+        var duplicate = await _db.TeacherAssignments.AnyAsync(t =>
+            t.SchoolId == SchoolId && t.EmployeeId == request.EmployeeId && t.ClassId == request.ClassId &&
+            t.SectionId == request.SectionId && t.SubjectId == request.SubjectId && !t.IsDeleted, ct);
+
+        if (id is null && duplicate)
+            throw DomainException.Conflict("This teacher is already assigned to that class and section.");
+
+        TeacherAssignment assignment;
+        if (id is null)
+        {
+            assignment = new TeacherAssignment
+            {
+                SchoolId = SchoolId,
+                EmployeeId = request.EmployeeId,
+                ClassId = request.ClassId,
+                SectionId = request.SectionId
+            };
+            _db.Add(assignment);
+        }
+        else
+        {
+            assignment = await _db.TeacherAssignments
+                .FirstOrDefaultAsync(t => t.Id == id && t.SchoolId == SchoolId && !t.IsDeleted, ct)
+                ?? throw DomainException.NotFound("Assignment");
+
+            assignment.EmployeeId = request.EmployeeId;
+            assignment.ClassId = request.ClassId;
+            assignment.SectionId = request.SectionId;
+        }
+
+        assignment.SubjectId = request.SubjectId;
+        assignment.IsClassTeacher = request.IsClassTeacher;
+
+        // The section keeps a single class teacher; assigning one clears the previous holder.
+        if (request.IsClassTeacher)
+        {
+            var other = await _db.TeacherAssignments
+                .Where(t => t.SchoolId == SchoolId && t.SectionId == request.SectionId &&
+                            t.IsClassTeacher && t.EmployeeId != request.EmployeeId && !t.IsDeleted)
+                .ToListAsync(ct);
+
+            foreach (var item in other) item.IsClassTeacher = false;
+
+            section.ClassTeacherId = request.EmployeeId;
+        }
+        else if (section.ClassTeacherId == request.EmployeeId)
+        {
+            section.ClassTeacherId = null;
+        }
+
+        await _uow.SaveChangesAsync(ct);
+
+        var className = await _db.Classes.Where(c => c.Id == request.ClassId).Select(c => c.Name)
+            .FirstOrDefaultAsync(ct) ?? string.Empty;
+        var subjectName = request.SubjectId is null
+            ? null
+            : await _db.Subjects.Where(s => s.Id == request.SubjectId).Select(s => s.Name).FirstOrDefaultAsync(ct);
+
+        return new TeacherAssignmentDto
+        {
+            Id = assignment.Id,
+            EmployeeId = employee.Id,
+            EmployeeName = employee.FullName,
+            EmployeeNo = employee.EmployeeNo,
+            ClassId = request.ClassId,
+            ClassName = className,
+            SectionId = section.Id,
+            SectionName = section.Name,
+            SubjectId = request.SubjectId,
+            SubjectName = subjectName,
+            IsClassTeacher = assignment.IsClassTeacher
+        };
+    }
+
+    public async Task DeleteTeacherAssignmentAsync(int id, CancellationToken ct = default)
+    {
+        var assignment = await _db.TeacherAssignments
+            .FirstOrDefaultAsync(t => t.Id == id && t.SchoolId == SchoolId && !t.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Assignment");
+
+        if (assignment.IsClassTeacher)
+        {
+            var section = await _db.Sections.FirstOrDefaultAsync(s => s.Id == assignment.SectionId, ct);
+            if (section is not null && section.ClassTeacherId == assignment.EmployeeId)
+                section.ClassTeacherId = null;
+        }
+
+        assignment.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
+    }
+
     // ---------- School ----------
 
     public async Task<SchoolDto> GetSchoolAsync(CancellationToken ct = default)

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
@@ -67,6 +68,9 @@ builder.Services.AddCors(options =>
     });
 });
 
+// Requests per minute per client IP. A school office usually sits behind one public IP,
+// so this must cover a whole staff room, not a single person.
+var permitsPerMinute = builder.Configuration.GetValue("RateLimiting:PermitsPerMinute", 1200);
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -75,7 +79,7 @@ builder.Services.AddRateLimiter(options =>
             http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
             _ => new FixedWindowRateLimiterOptions
             {
-                PermitLimit = 240,
+                PermitLimit = permitsPerMinute,
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
                 AutoReplenishment = true
@@ -84,13 +88,28 @@ builder.Services.AddRateLimiter(options =>
 
 var app = builder.Build();
 
-app.UseMiddleware<ExceptionHandlingMiddleware>();
-app.UseSwagger();
-app.UseSwaggerUI(options =>
+// Behind Render's proxy/CDN the socket address is the proxy's. Take the client address
+// from X-Forwarded-For so rate limiting and audit logs see real users. Render strips
+// client-supplied values at its edge, so the forwarded chain can be trusted there.
+var forwarded = new ForwardedHeadersOptions
 {
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", "School ERP API v1");
-    options.DocumentTitle = "Wintech School ERP API";
-});
+    ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
+    ForwardLimit = 2
+};
+forwarded.KnownNetworks.Clear();
+forwarded.KnownProxies.Clear();
+app.UseForwardedHeaders(forwarded);
+
+app.UseMiddleware<ExceptionHandlingMiddleware>();
+if (app.Environment.IsDevelopment() || builder.Configuration.GetValue("Swagger:Enabled", false))
+{
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
+    {
+        options.SwaggerEndpoint("/swagger/v1/swagger.json", "School ERP API v1");
+        options.DocumentTitle = "Wintech School ERP API";
+    });
+}
 
 app.UseCors();
 app.UseRateLimiter();
@@ -135,9 +154,22 @@ if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Seed:Enab
     catch (Exception ex)
     {
         logger.LogError(ex,
-            "Database initialisation failed. Check ConnectionStrings:Default and that SQL Server is reachable.");
+            "Database initialisation failed. Check ConnectionStrings:Default and that the database is reachable.");
         throw;
     }
+}
+else if (!app.Environment.IsDevelopment())
+{
+    // Production: create the schema if missing and the first super admin from secrets.
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await db.Database.EnsureCreatedAsync();
+    var cfg = builder.Configuration;
+    await scope.ServiceProvider.GetRequiredService<DbInitializer>().BootstrapPlatformAsync(
+        cfg["Bootstrap:SchoolCode"] ?? "WINTECH",
+        cfg["Bootstrap:SchoolName"] ?? "Wintech Innovations",
+        cfg["Bootstrap:AdminEmail"] ?? string.Empty,
+        cfg["Bootstrap:AdminPassword"] ?? string.Empty);
 }
 
 app.Run();

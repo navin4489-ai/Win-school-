@@ -143,6 +143,11 @@ td .secondary { color: var(--ink-500); font-size: 12px; margin-top: 2px; }
   color: var(--ink-900);
 }
 .field textarea { min-height: 84px; resize: vertical; }
+/* Keep dropdown lists light even when Windows/the browser is in dark mode, otherwise
+   the dark option text is drawn on a dark popup and looks empty. */
+:root { color-scheme: light; }
+select, select option { background-color: #fff; color: var(--ink-900); }
+.field { align-content: start; }
 .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--teal-500); box-shadow: 0 0 0 3px rgba(15, 138, 134, 0.12); outline: none; }
 .field .hint { font-size: 11px; color: var(--ink-500); }
 

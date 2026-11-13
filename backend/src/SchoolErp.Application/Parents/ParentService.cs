@@ -87,7 +87,7 @@ public sealed class ParentService
                         (a.Audience == "All" || a.Audience == "Parents"))
             .OrderByDescending(a => a.CreatedAtUtc)
             .Take(5)
-            .Select(a => new AnnouncementDto
+            .Select(a => new ParentAnnouncementDto
             {
                 Id = a.Id, Title = a.Title, Body = a.Body, PublishedAtUtc = a.PublishedAtUtc
             }).ToListAsync(ct);
@@ -194,16 +194,16 @@ public sealed class ParentService
 
         return new FeeSummaryDto
         {
-            TotalDue = Math.Round(installments.Sum(i => i.Amount), 2),
+            TotalDue = Math.Round(installments.Sum(i => i.Amount + i.PenaltyAmount), 2),
             TotalPaid = Math.Round(paid, 2),
-            Balance = Math.Round(installments.Sum(i => i.Amount - i.PaidAmount), 2),
+            Balance = Math.Round(installments.Sum(i => i.TotalAmount - i.PaidAmount), 2),
             Overdue = Math.Round(installments
                 .Where(i => i.DueDate < today && i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived)
-                .Sum(i => i.Amount - i.PaidAmount), 2),
+                .Sum(i => i.TotalAmount - i.PaidAmount), 2),
             Installments = installments.Select(i => new InstallmentSummaryDto
             {
                 Id = i.Id, Name = i.Name, DueDate = i.DueDate, Amount = i.Amount,
-                PaidAmount = i.PaidAmount, Balance = i.Amount - i.PaidAmount, Status = i.Status
+                PaidAmount = i.PaidAmount, Balance = i.TotalAmount - i.PaidAmount, Status = i.Status
             }).ToList()
         };
     }

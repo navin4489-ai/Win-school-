@@ -1,18 +1,20 @@
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import {
-  ClassRoom, CollectionSummary, Defaulter, Ledger, PagedResult, Payment, PaymentMode
+  Child, ClassRoom, CollectionSummary, Defaulter, Ledger, PagedResult, Payment, PaymentMode, PaymentOrder
 } from '../../core/models';
 
-type Tab = 'collect' | 'outstanding' | 'payments';
+type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
 
 @Component({
   selector: 'app-fees',
   standalone: true,
-  imports: [ReactiveFormsModule, RouterLink, CurrencyPipe, DatePipe, DecimalPipe],
+  imports: [ReactiveFormsModule, FormsModule, RouterLink, CurrencyPipe, DatePipe, DecimalPipe],
   template: `
     <div class="page">
       <header class="page-header">
@@ -56,10 +58,126 @@ type Tab = 'collect' | 'outstanding' | 'payments';
       }
 
       <div class="tabs">
-        <button class="tab" [class.active]="tab() === 'collect'" (click)="setTab('collect')">Collect</button>
-        <button class="tab" [class.active]="tab() === 'outstanding'" (click)="setTab('outstanding')">Outstanding</button>
-        <button class="tab" [class.active]="tab() === 'payments'" (click)="setTab('payments')">Recent payments</button>
+        @if (isParent()) {
+          <button class="tab" [class.active]="tab() === 'my-fees'" (click)="setTab('my-fees')">{{ isStudent() ? 'My fees' : 'My children' }}</button>
+          <button class="tab" [class.active]="tab() === 'payments'" (click)="setTab('payments')">Payment history</button>
+        } @else {
+          <button class="tab" [class.active]="tab() === 'collect'" (click)="setTab('collect')">Collect</button>
+          <button class="tab" [class.active]="tab() === 'outstanding'" (click)="setTab('outstanding')">Outstanding</button>
+          <button class="tab" [class.active]="tab() === 'payments'" (click)="setTab('payments')">Recent payments</button>
+        }
       </div>
+
+      @if (tab() === 'my-fees') {
+        <section class="split">
+          <article class="card">
+            <div class="card-header"><h3>Fee ledger</h3></div>
+            <div class="card-body">
+              @if (!children().length) {
+                <div class="empty">No children are linked to your account.</div>
+              } @else {
+                <div class="row" style="gap:8px;margin-bottom:14px">
+                  @for (child of children(); track child.studentId) {
+                    <button
+                      class="btn btn-sm"
+                      [class.btn-primary]="selectedChildId() === child.studentId"
+                      [class.btn-ghost]="selectedChildId() !== child.studentId"
+                      type="button"
+                      (click)="selectChild(child.studentId)">
+                      {{ child.fullName }}
+                    </button>
+                  }
+                </div>
+
+                @if (ledger(); as l) {
+                  <div class="row" style="justify-content:space-between">
+                    <div>
+                      <div style="font-weight:650">{{ l.studentName }}</div>
+                      <div class="small muted">{{ l.admissionNo }} · {{ l.className }}</div>
+                    </div>
+                    <a class="btn btn-ghost btn-sm" [routerLink]="['/students', l.studentId]">Profile</a>
+                  </div>
+                  <div class="divider"></div>
+                  <div class="stat-grid" style="grid-template-columns:repeat(2,1fr)">
+                    <div><div class="small muted">Billed</div><strong>{{ l.totalBilled | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                    <div><div class="small muted">Paid</div><strong>{{ l.totalPaid | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                    <div><div class="small muted">Balance</div><strong>{{ l.balance | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                    <div><div class="small muted">Overdue</div><strong style="color:var(--red-500)">{{ l.overdue | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                    @if (l.penaltyTotal > 0) {
+                      <div>
+                        <div class="small muted">Late fee applied</div>
+                        <strong style="color:var(--amber-600)">{{ l.penaltyTotal | currency:'INR':'symbol':'1.0-0' }}</strong>
+                      </div>
+                    }
+                  </div>
+                  <div class="divider"></div>
+                  <div class="list">
+                    @for (installment of l.installments; track installment.id) {
+                      <div class="list-item">
+                        <div [class]="'dot ' + (installment.isOverdue ? 'red' : installment.balance <= 0 ? 'green' : '')"></div>
+                        <div style="flex:1">
+                          <div style="font-weight:600">{{ installment.name }}</div>
+                          <div class="small muted">Due {{ installment.dueDate | date:'dd MMM yyyy' }} · {{ installment.status }}</div>
+                          @if (installment.penaltyAmount > 0) {
+                            <div class="small" style="color:var(--amber-600)">
+                              Late fee {{ installment.penaltyAmount | currency:'INR':'symbol':'1.0-0' }} added
+                            </div>
+                          }
+                        </div>
+                        <div style="text-align:right">
+                          <div>{{ installment.balance | currency:'INR':'symbol':'1.0-0' }}</div>
+                          @if (installment.balance > 0) {
+                            <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">
+                              Pay online
+                            </button>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </div>
+                  <div class="divider"></div>
+                  <button class="btn btn-ghost btn-sm" type="button" (click)="downloadStatement(l.studentId)">
+                    ⬇ Download fee statement / bill
+                  </button>
+                } @else {
+                  <div class="loading">Loading ledger…</div>
+                }
+              }
+            </div>
+          </article>
+
+          <article class="card">
+            <div class="card-header"><h3>Receipts</h3></div>
+            <div class="card-body">
+              @if (ledger(); as l) {
+                @if (!l.payments.length) {
+                  <div class="empty">No payments recorded yet.</div>
+                } @else {
+                  <div class="list">
+                    @for (payment of l.payments; track payment.id) {
+                      <div class="list-item">
+                        <div class="dot green"></div>
+                        <div style="flex:1">
+                          <div style="font-weight:600">{{ payment.receiptNo }}</div>
+                          <div class="small muted">{{ payment.paidAtUtc | date:'dd MMM yyyy, HH:mm' }} · {{ payment.mode }}</div>
+                        </div>
+                        <div style="text-align:right">
+                          <div>{{ payment.amount | currency:'INR':'symbol':'1.0-0' }}</div>
+                          <button class="btn btn-ghost btn-sm" type="button" (click)="downloadReceipt(payment.id)">
+                            ⬇ Download
+                          </button>
+                        </div>
+                      </div>
+                    }
+                  </div>
+                }
+              } @else {
+                <div class="empty">Select a child to see the receipts.</div>
+              }
+            </div>
+          </article>
+        </section>
+      }
 
       @if (tab() === 'collect') {
         <section class="split">
@@ -122,6 +240,12 @@ type Tab = 'collect' | 'outstanding' | 'payments';
                   <div><div class="small muted">Paid</div><strong>{{ l.totalPaid | currency:'INR':'symbol':'1.0-0' }}</strong></div>
                   <div><div class="small muted">Balance</div><strong>{{ l.balance | currency:'INR':'symbol':'1.0-0' }}</strong></div>
                   <div><div class="small muted">Overdue</div><strong style="color:var(--red-500)">{{ l.overdue | currency:'INR':'symbol':'1.0-0' }}</strong></div>
+                  @if (l.penaltyTotal > 0) {
+                    <div>
+                      <div class="small muted">Late fee applied</div>
+                      <strong style="color:var(--amber-600)">{{ l.penaltyTotal | currency:'INR':'symbol':'1.0-0' }}</strong>
+                    </div>
+                  }
                 </div>
                 <div class="divider"></div>
                 <div class="list">
@@ -131,15 +255,30 @@ type Tab = 'collect' | 'outstanding' | 'payments';
                       <div style="flex:1">
                         <div style="font-weight:600">{{ installment.name }}</div>
                         <div class="small muted">Due {{ installment.dueDate | date:'dd MMM yyyy' }} · {{ installment.status }}</div>
+                        @if (installment.penaltyAmount > 0) {
+                          <div class="small" style="color:var(--amber-600)">
+                            Late fee {{ installment.penaltyAmount | currency:'INR':'symbol':'1.0-0' }} added
+                          </div>
+                        }
                       </div>
                       <div style="text-align:right">
                         <div>{{ installment.balance | currency:'INR':'symbol':'1.0-0' }}</div>
                         @if (installment.balance > 0) {
-                          <button class="btn btn-ghost btn-sm" type="button" (click)="payInstallment(installment.id, installment.balance)">Pay</button>
+                          <div class="row" style="gap:6px;justify-content:flex-end;margin-top:4px">
+                            <button class="btn btn-ghost btn-sm" type="button" (click)="payInstallment(installment.id, installment.balance)">Pay</button>
+                            <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">Pay online</button>
+                          </div>
                         }
                       </div>
                     </div>
                   }
+                </div>
+                <div class="divider"></div>
+                <div class="row">
+                  <button class="btn btn-ghost btn-sm" type="button" (click)="downloadStatement(l.studentId)">
+                    ⬇ Download fee statement
+                  </button>
+                  <span class="small muted">Printable bill with every installment and receipt.</span>
                 </div>
               } @else {
                 <div class="empty">Enter a student ID and load the ledger to see installments.</div>
@@ -203,7 +342,7 @@ type Tab = 'collect' | 'outstanding' | 'payments';
           } @else {
             <div class="table-wrap">
               <table>
-                <thead><tr><th>Receipt</th><th>Student</th><th>Mode</th><th>Paid</th><th>Amount</th><th>Status</th></tr></thead>
+                <thead><tr><th>Receipt</th><th>Student</th><th>Mode</th><th>Paid</th><th>Amount</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                   @for (payment of payments(); track payment.id) {
                     <tr>
@@ -213,6 +352,11 @@ type Tab = 'collect' | 'outstanding' | 'payments';
                       <td class="small muted">{{ payment.paidAtUtc | date:'dd MMM, HH:mm' }}</td>
                       <td>{{ payment.amount | currency:'INR':'symbol':'1.0-0' }}</td>
                       <td><span class="badge green">{{ payment.status }}</span></td>
+                      <td>
+                        <button class="btn btn-ghost btn-sm" type="button" (click)="downloadReceipt(payment.id)">
+                          ⬇ Receipt
+                        </button>
+                      </td>
                     </tr>
                   }
                 </tbody>
@@ -221,24 +365,74 @@ type Tab = 'collect' | 'outstanding' | 'payments';
           }
         </section>
       }
+
+      @if (checkout(); as order) {
+        <div class="modal-backdrop" (click)="checkout.set(null)">
+          <div class="modal" (click)="$event.stopPropagation()">
+            <div class="modal-head">
+              <h3>Secure checkout</h3>
+              <span class="badge gold">{{ order.gateway }}</span>
+            </div>
+            <div class="modal-body">
+              <div class="checkout-amount">{{ order.amount | currency:'INR':'symbol':'1.2-2' }}</div>
+              <div class="small muted">{{ order.studentName }}</div>
+              @if (order.installmentName) {
+                <div class="small muted">Installment: {{ order.installmentName }}</div>
+              }
+              <div class="divider"></div>
+              <label class="field">
+                <span>Card / UPI reference</span>
+                <input [(ngModel)]="cardReference" placeholder="4242 4242 4242 4242" />
+              </label>
+              <p class="small muted">
+                Test gateway — no real money moves. The amount is verified against the order the server created.
+              </p>
+            </div>
+            <div class="modal-foot">
+              <button class="btn btn-ghost" type="button" (click)="checkout.set(null)" [disabled]="paying()">Cancel</button>
+              <button class="btn btn-primary" type="button" (click)="completeOnlinePayment(order)" [disabled]="paying()">
+                {{ paying() ? 'Processing…' : 'Pay ' + (order.amount | currency:'INR':'symbol':'1.0-0') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </div>
-  `
+  `,
+  styles: [`
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(6, 20, 35, .55); display: grid; place-items: center; z-index: 70; padding: 20px; }
+    .modal { width: min(420px, 100%); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+    .modal-body { padding: 18px; display: grid; gap: 10px; }
+    .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 18px; border-top: 1px solid var(--line); background: #fbfdff; }
+    .checkout-amount { font-size: 30px; font-weight: 700; letter-spacing: -.03em; }
+  `]
 })
 export class FeesComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly fb = inject(FormBuilder);
+  private readonly auth = inject(AuthService);
 
   readonly tab = signal<Tab>('collect');
   readonly ledger = signal<Ledger | null>(null);
   readonly outstanding = signal<Defaulter[]>([]);
   readonly payments = signal<Payment[]>([]);
   readonly classes = signal<ClassRoom[]>([]);
+  readonly children = signal<Child[]>([]);
+  readonly selectedChildId = signal<number | null>(null);
   readonly summary = signal<CollectionSummary | null>(null);
   readonly loading = signal(false);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly classId = signal('');
+  readonly checkout = signal<PaymentOrder | null>(null);
+  readonly paying = signal(false);
+  cardReference = '4242 4242 4242 4242';
+
+  // Parents and students both get the family view: their own ledger, never school-wide figures.
+  readonly isStudent = computed(() => this.auth.user()?.roleCode === 'Student');
+  readonly isParent = computed(() => this.auth.user()?.roleCode === 'Parent' || this.isStudent());
 
   readonly modes: PaymentMode[] = ['Cash', 'Upi', 'Card', 'NetBanking', 'Cheque', 'BankTransfer', 'Online'];
 
@@ -255,12 +449,43 @@ export class FeesComponent implements OnInit {
   ngOnInit(): void {
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    if (this.isParent()) {
+      this.tab.set('my-fees');
+      this.loadChildren();
+      this.loadPayments(from, now);
+      return;
+    }
+
     this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: rows => this.classes.set(rows), error: () => undefined });
     this.api
       .get<CollectionSummary>('fees/summary', { from: iso(from), to: iso(now) })
       .subscribe({ next: value => this.summary.set(value), error: () => undefined });
     this.loadPayments(from, now);
     this.loadOutstanding();
+  }
+
+  private loadChildren(): void {
+    const me = this.auth.user();
+    if (this.isStudent() && me?.studentId) {
+      this.children.set([{ studentId: me.studentId, fullName: me.fullName } as Child]);
+      this.selectChild(me.studentId);
+      return;
+    }
+
+    this.api.get<Child[]>('parent/children').subscribe({
+      next: kids => {
+        this.children.set(kids);
+        if (kids.length) this.selectChild(kids[0].studentId);
+      },
+      error: () => this.error.set('Could not load your children.')
+    });
+  }
+
+  selectChild(studentId: number): void {
+    this.selectedChildId.set(studentId);
+    this.form.patchValue({ studentId });
+    this.loadLedger();
   }
 
   setTab(tab: Tab): void {
@@ -322,7 +547,7 @@ export class FeesComponent implements OnInit {
           this.feeInstallmentId = null;
           this.form.patchValue({ amount: 0, referenceNo: '', remarks: '' });
           this.loadLedger();
-          this.loadOutstanding();
+          if (!this.isParent()) this.loadOutstanding();
           const now = new Date();
           this.loadPayments(new Date(now.getFullYear(), now.getMonth(), 1), now);
         },
@@ -337,6 +562,70 @@ export class FeesComponent implements OnInit {
     this.api.post<{ queued: number; skipped: number }>('fees/reminders').subscribe({
       next: result => this.message.set(`${result.queued} reminders queued, ${result.skipped} skipped.`),
       error: () => this.error.set('Could not queue reminders.')
+    });
+  }
+
+  /** Opens a payment session with the gateway and shows the checkout sheet. */
+  startOnlinePayment(installmentId: number, amount: number): void {
+    const studentId = this.form.controls.studentId.value;
+    if (!studentId) {
+      this.error.set('Load the student ledger first.');
+      return;
+    }
+
+    this.error.set(null);
+    this.api
+      .post<PaymentOrder>('fees/payments/order', { studentId, amount, feeInstallmentId: installmentId })
+      .subscribe({
+        next: order => this.checkout.set(order),
+        error: () => this.error.set('The payment session could not be opened.')
+      });
+  }
+
+  completeOnlinePayment(order: PaymentOrder): void {
+    if (this.paying()) return;
+
+    this.paying.set(true);
+    this.error.set(null);
+
+    this.api
+      .post<Payment>('fees/payments/online', {
+        studentId: order.studentId,
+        feeInstallmentId: null,
+        amount: order.amount,
+        gatewayOrderId: order.orderId,
+        gatewayPaymentId: order.paymentId,
+        idempotencyKey: crypto.randomUUID()
+      })
+      .subscribe({
+        next: payment => {
+          this.paying.set(false);
+          this.checkout.set(null);
+          this.message.set(`Payment of ${payment.amount.toLocaleString('en-IN')} received. Receipt ${payment.receiptNo}.`);
+          this.loadLedger();
+          // The outstanding list is school-wide and is not available to a parent.
+          if (!this.isParent()) this.loadOutstanding();
+          const now = new Date();
+          this.loadPayments(new Date(now.getFullYear(), now.getMonth(), 1), now);
+        },
+        error: response => {
+          this.paying.set(false);
+          this.error.set(readError(response) ?? 'The payment could not be completed.');
+        }
+      });
+  }
+
+  downloadReceipt(paymentId: number): void {
+    this.api.download(`fees/payments/${paymentId}/receipt`).subscribe({
+      next: response => this.api.saveBlob(response, 'receipt.html'),
+      error: () => this.error.set('The receipt could not be downloaded.')
+    });
+  }
+
+  downloadStatement(studentId: number): void {
+    this.api.download(`fees/students/${studentId}/statement`).subscribe({
+      next: response => this.api.saveBlob(response, 'fee-statement.html'),
+      error: () => this.error.set('The fee statement could not be downloaded.')
     });
   }
 
@@ -369,4 +658,14 @@ export class FeesComponent implements OnInit {
 
 function iso(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function readError(response: unknown): string | null {
+  const body = (response as { error?: { detail?: string; title?: string; errors?: Record<string, string[]> } })?.error;
+  if (!body) return null;
+  if (body.errors) {
+    const first = Object.values(body.errors)[0];
+    if (first?.length) return first[0];
+  }
+  return body.detail ?? body.title ?? null;
 }

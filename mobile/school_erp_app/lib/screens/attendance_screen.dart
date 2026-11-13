@@ -225,7 +225,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
               child: Column(
                 children: [
                   DropdownButtonFormField<int>(
-                    value: _selectedClass?.id,
+                    initialValue: _selectedClass?.id,
                     decoration: const InputDecoration(labelText: 'Class'),
                     items: _classes
                         .map((room) => DropdownMenuItem(value: room.id, child: Text(room.name)))
@@ -237,7 +237,7 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                   ),
                   const SizedBox(height: 10),
                   DropdownButtonFormField<int>(
-                    value: _selectedSection?.id,
+                    initialValue: _selectedSection?.id,
                     decoration: const InputDecoration(labelText: 'Section'),
                     items: _sections
                         .map((section) => DropdownMenuItem(value: section.id, child: Text(section.name)))
@@ -404,7 +404,7 @@ class _CountBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
+        color: color.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

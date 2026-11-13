@@ -42,6 +42,7 @@ public interface IAppDbContext
     DbSet<FeeStructureItem> FeeStructureItems { get; }
     DbSet<StudentFeeAssignment> StudentFeeAssignments { get; }
     DbSet<FeeInstallment> FeeInstallments { get; }
+    DbSet<FeePenalty> FeePenalties { get; }
     DbSet<Payment> Payments { get; }
     DbSet<PaymentTransaction> PaymentTransactions { get; }
     DbSet<Discount> Discounts { get; }
@@ -94,6 +95,16 @@ public interface ICurrentUser
     string? IpAddress { get; }
     string? UserAgent { get; }
     bool IsAuthenticated { get; }
+
+    /// <summary>
+    /// True only when there is no HTTP request at all (start-up seeding, background jobs).
+    /// Only then may the tenant filter be relaxed; a web request is always school-scoped,
+    /// even when it is anonymous or its token carries no school.
+    /// </summary>
+    bool IsSystemContext { get; }
+
+    /// <summary>The platform operator who configures schools. Not tied to one tenant's data.</summary>
+    bool IsPlatformAdmin => IsInRole(RoleCodes.SuperAdmin);
     IReadOnlyCollection<string> Permissions { get; }
     IReadOnlyCollection<string> Roles { get; }
     bool HasPermission(string permission);
@@ -135,11 +146,31 @@ public interface INotificationSender
     Task SendAsync(Notification notification, string? recipient, CancellationToken ct = default);
 }
 
+/// <summary>
+/// Fans a freshly persisted notification out to the live subscribers (SSE clients).
+/// Publishing is best-effort: a failure must never roll back the write that
+/// created the notification.
+/// </summary>
+public interface INotificationPublisher
+{
+    void Publish(Notification notification);
+}
+
 public sealed record GatewayVerification(bool Success, string? GatewayPaymentId, string? FailureReason, string? RawResponse);
+
+/// <summary>A payment session created by the gateway before the customer pays.</summary>
+public sealed record GatewayOrder(
+    string OrderId,
+    string PaymentId,
+    decimal Amount,
+    string Currency,
+    string CheckoutUrl,
+    DateTime ExpiresAtUtc);
 
 public interface IPaymentGateway
 {
     string Name { get; }
+    Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, CancellationToken ct = default);
     Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount, CancellationToken ct = default);
     Task<GatewayVerification> RefundAsync(string paymentId, decimal amount, CancellationToken ct = default);
 }

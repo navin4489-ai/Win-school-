@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using SchoolErp.Application.Common;
 using SchoolErp.Domain.Common;
 using SchoolErp.Infrastructure.Persistence;
+using SchoolErp.Infrastructure.Services;
 
 namespace SchoolErp.Tests;
 
@@ -25,6 +26,7 @@ internal sealed class TestCurrentUser : ICurrentUser
     public string? IpAddress { get; set; } = "127.0.0.1";
     public string? UserAgent { get; set; } = "xunit";
     public bool IsAuthenticated => UserId is not null;
+    public bool IsSystemContext => SchoolId is null;
     public IReadOnlyCollection<string> Permissions { get; set; } = Array.Empty<string>();
     public IReadOnlyCollection<string> Roles { get; set; } = new[] { RoleCodes.Accountant };
 
@@ -42,7 +44,7 @@ internal static class TestDb
             .EnableSensitiveDataLogging()
             .Options;
 
-        var db = new AppDbContext(options, user, clock);
+        var db = new AppDbContext(options, user, clock, new NullNotificationPublisher());
         db.Database.EnsureCreated();
         return db;
     }

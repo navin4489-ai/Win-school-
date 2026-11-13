@@ -157,6 +157,14 @@ public sealed class FeeServiceTests
     private sealed class FakeGateway : IPaymentGateway
     {
         public string Name => "Fake";
+
+        public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference,
+            CancellationToken ct = default) =>
+            Task.FromResult(new GatewayOrder(
+                $"FAKE-ORD-{amount:0.00}-{Guid.NewGuid():N}",
+                $"FAKE-PAY-{Guid.NewGuid():N}",
+                amount, "INR", "/checkout", DateTime.UtcNow.AddMinutes(30)));
+
         public Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount,
             CancellationToken ct = default) =>
             Task.FromResult(new GatewayVerification(true, paymentId, null, "ok"));

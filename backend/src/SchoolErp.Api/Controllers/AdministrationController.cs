@@ -167,4 +167,31 @@ public sealed class AdministrationController : ControllerBase
     [Authorize(Policy = "permission:communication.manage")]
     public async Task<ActionResult<AnnouncementDto>> CreateAnnouncement(SaveAnnouncementRequest request,
         CancellationToken ct) => Ok(await _admin.CreateAnnouncementAsync(request, ct));
+
+    // Teacher assignments — the principal decides who teaches which class and section.
+    [HttpGet("teacher-assignments")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<ActionResult<List<TeacherAssignmentDto>>> TeacherAssignments([FromQuery] int? classId,
+        [FromQuery] int? sectionId, CancellationToken ct) =>
+        Ok(await _admin.GetTeacherAssignmentsAsync(classId, sectionId, ct));
+
+    [HttpPost("teacher-assignments")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<ActionResult<TeacherAssignmentDto>> CreateTeacherAssignment(
+        SaveTeacherAssignmentRequest request, CancellationToken ct) =>
+        Ok(await _admin.SaveTeacherAssignmentAsync(null, request, ct));
+
+    [HttpPut("teacher-assignments/{id:int}")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<ActionResult<TeacherAssignmentDto>> UpdateTeacherAssignment(int id,
+        SaveTeacherAssignmentRequest request, CancellationToken ct) =>
+        Ok(await _admin.SaveTeacherAssignmentAsync(id, request, ct));
+
+    [HttpDelete("teacher-assignments/{id:int}")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<IActionResult> DeleteTeacherAssignment(int id, CancellationToken ct)
+    {
+        await _admin.DeleteTeacherAssignmentAsync(id, ct);
+        return NoContent();
+    }
 }

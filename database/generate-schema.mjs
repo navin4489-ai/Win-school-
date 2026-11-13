@@ -28,7 +28,7 @@ const fkTargets = {
   Department: "Department", Designation: "Designation", TransportRoute: "TransportRoute",
   TransportStop: "TransportStop", Vehicle: "Vehicle", Book: "Book", InventoryItem: "InventoryItem",
   Vendor: "Vendor", PurchaseOrder: "PurchaseOrder", Document: "Document", UserAccount: "UserAccount",
-  Role: "Role", Permission: "Permission"
+  Role: "Role", Permission: "Permission", Notification: "Notification", FeePenalty: "FeePenalty"
 };
 
 const entities = new Map();
@@ -200,6 +200,7 @@ const unique = [
   ["FeeStructure", "SchoolId, AcademicSessionId, ClassId, Name", "[IsDeleted] = 0"],
   ["FeeStructureItem", "FeeStructureId, FeeCategoryId", "[IsDeleted] = 0"],
   ["FeeInstallment", "StudentFeeAssignmentId, Name", "[IsDeleted] = 0"],
+  ["FeePenalty", "FeeInstallmentId, PenaltyDate", "[IsDeleted] = 0"],
   ["Payment", "SchoolId, ReceiptNo", "[IsDeleted] = 0"],
   ["Payment", "SchoolId, IdempotencyKey", "[IdempotencyKey] IS NOT NULL"],
   ["Discount", "SchoolId, Code", "[IsDeleted] = 0"],

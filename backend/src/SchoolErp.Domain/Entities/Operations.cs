@@ -25,6 +25,16 @@ public class EmployeeAttendance : AuditableEntity
     public AttendanceStatus Status { get; set; } = AttendanceStatus.Present;
     public string? Remarks { get; set; }
     public AttendanceSource Source { get; set; } = AttendanceSource.Manual;
+
+    // Proof captured by the staff app at check-in / check-out.
+    public string? CheckInPhotoUrl { get; set; }
+    public string? CheckOutPhotoUrl { get; set; }
+    public decimal? CheckInLatitude { get; set; }
+    public decimal? CheckInLongitude { get; set; }
+    public decimal? CheckOutLatitude { get; set; }
+    public decimal? CheckOutLongitude { get; set; }
+    public string? CheckInAddress { get; set; }
+    public string? CheckOutAddress { get; set; }
 }
 
 public class Vehicle : AuditableEntity

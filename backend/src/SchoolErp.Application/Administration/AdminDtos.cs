@@ -109,6 +109,31 @@ public sealed class SaveSectionRequest
     public int? ClassTeacherId { get; set; }
 }
 
+/// <summary>A teacher's scope over a class, section and (optionally) a subject.</summary>
+public sealed class TeacherAssignmentDto
+{
+    public int Id { get; init; }
+    public int EmployeeId { get; init; }
+    public string EmployeeName { get; init; } = string.Empty;
+    public string EmployeeNo { get; init; } = string.Empty;
+    public int ClassId { get; init; }
+    public string ClassName { get; init; } = string.Empty;
+    public int SectionId { get; init; }
+    public string SectionName { get; init; } = string.Empty;
+    public int? SubjectId { get; init; }
+    public string? SubjectName { get; init; }
+    public bool IsClassTeacher { get; init; }
+}
+
+public sealed class SaveTeacherAssignmentRequest
+{
+    [Range(1, int.MaxValue)] public int EmployeeId { get; set; }
+    [Range(1, int.MaxValue)] public int ClassId { get; set; }
+    [Range(1, int.MaxValue)] public int SectionId { get; set; }
+    public int? SubjectId { get; set; }
+    public bool IsClassTeacher { get; set; }
+}
+
 public sealed class SubjectDto
 {
     public int Id { get; init; }

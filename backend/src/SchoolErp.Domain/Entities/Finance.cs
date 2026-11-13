@@ -48,12 +48,35 @@ public class FeeInstallment : AuditableEntity
     public DateOnly DueDate { get; set; }
     public decimal Amount { get; set; }
     public decimal PaidAmount { get; set; }
+    /// <summary>Late fee accrued by the penalty job for an unpaid installment.</summary>
+    public decimal PenaltyAmount { get; set; }
     public InstallmentStatus Status { get; set; } = InstallmentStatus.Pending;
+
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
-    public decimal Balance => Math.Max(0, Amount - PaidAmount);
+    public decimal TotalAmount => Amount + PenaltyAmount;
+
+    [System.ComponentModel.DataAnnotations.Schema.NotMapped]
+    public decimal Balance => Math.Max(0, TotalAmount - PaidAmount);
 
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
     public bool IsOverdue => Status != InstallmentStatus.Paid && DueDate < DateOnly.FromDateTime(DateTime.UtcNow);
+}
+
+/// <summary>
+/// One late-fee row per installment per day. Append only, so re-running the penalty
+/// job cannot double charge a day (see ADR 0004 for the same append-only rule applied
+/// to payments).
+/// </summary>
+public class FeePenalty : AuditableEntity
+{
+    public int StudentFeeAssignmentId { get; set; }
+    public int FeeInstallmentId { get; set; }
+    public int StudentId { get; set; }
+    public DateOnly PenaltyDate { get; set; }
+    public decimal Amount { get; set; }
+    public int DaysLate { get; set; }
+    public string Reason { get; set; } = string.Empty;
+    public int? NotificationId { get; set; }
 }
 
 public class Payment : AuditableEntity

@@ -27,11 +27,16 @@ Base path: `/api` (local: `http://localhost:5080/api`). Swagger UI: `/swagger`.
 | Fees | `GET/POST fees/categories`, `GET/POST fees/structures`, `POST fees/assignments` | `fees.read` / `fees.collect` |
 | | `GET fees/students/{studentId}/ledger`, `GET fees/payments` | `fees.read` (scoped for parents/students) |
 | | `POST fees/payments` (send `idempotencyKey`) | `fees.collect` |
+| | `POST fees/payments/order`, `POST fees/payments/online` (gateway checkout) | `fees.read` — parents for own children only |
+| | `GET fees/payments/{id}/receipt`, `GET fees/students/{studentId}/statement` (printable HTML) | `fees.read` (scoped) |
 | | `POST fees/payments/{id}/refunds`, `POST fees/refunds/{id}/approve` | `fees.refund` |
 | | `GET fees/summary?from&to`, `GET fees/outstanding?classId`, `POST fees/reminders` | staff only |
 | Attendance | `GET attendance/roster?classId&sectionId&date`, `POST attendance/mark` | `attendance.read` / `attendance.mark` |
 | | `GET attendance/students/{studentId}?from&to` | `attendance.read` (scoped) |
-| | `GET attendance/staff?date`, `POST attendance/staff/check-in|check-out` | `hr.read` / signed-in staff |
+| | `GET attendance/staff?date` | principal or `hr.read` |
+| | `POST attendance/staff/check-in|check-out` (`photoUrl`, `latitude`, `longitude`, `address`), `GET attendance/staff/me?from&to` | `attendance.mark` / signed-in staff |
+| Files | `POST files/upload` (multipart, JPG/PNG/WEBP/HEIC/PDF) | signed in |
+| Assignments | `GET/POST/PUT/DELETE admin/teacher-assignments` | `settings.manage` |
 | Exams | `GET/POST exams`, `GET/POST exams/{id}/subjects`, `GET exams/subjects/{examSubjectId}/marks`, `POST exams/{id}/marks|submit|approve|publish` | `exams.read` / `exams.manage` |
 | | `GET exams/{id}/results`, `GET exams/{id}/report-cards/{studentId}` (`{ html, ... }`) | `exams.read` (scoped) |
 | Homework | `GET/POST homework`, `GET/POST homework/{id}/submissions`, `POST homework/submissions/{id}/grade` | signed in / `homework.manage` |
@@ -40,7 +45,8 @@ Base path: `/api` (local: `http://localhost:5080/api`). Swagger UI: `/swagger`.
 | Library | `GET/POST library/books`, `POST library/issues|returns`, `GET library/transactions` | `library.manage` |
 | Inventory | `GET/POST inventory`, `POST inventory/stock` | `inventory.manage` |
 | LMS | `GET/POST lms/materials` | `lms.manage` |
-| Notifications | `GET notifications?unreadOnly`, `POST notifications/{id}/read` | signed in (own only) |
+| Notifications | `GET notifications?unreadOnly`, `GET notifications/unread-count`, `POST notifications/{id}/read`, `POST notifications/read-all` | signed in (own only) |
+| | `GET notifications/stream` (server-sent events, live popups) | signed in (own only) |
 | | `POST notifications/broadcast` | `communication.manage` |
 | Reports | `GET reports/types`, `GET reports/export?type&from&to&classId` (CSV, audited) | `reports.read` |
 | Health | `GET /health`, `GET /health/ready` | anonymous |

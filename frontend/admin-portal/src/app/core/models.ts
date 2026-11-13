@@ -168,9 +168,24 @@ export interface Installment {
   dueDate: string;
   amount: number;
   paidAmount: number;
+  penaltyAmount: number;
+  totalAmount: number;
   balance: number;
   status: string;
   isOverdue: boolean;
+}
+
+export interface PaymentOrder {
+  orderId: string;
+  paymentId: string;
+  amount: number;
+  currency: string;
+  checkoutUrl: string;
+  expiresAtUtc: string;
+  gateway: string;
+  studentId: number;
+  studentName: string;
+  installmentName?: string | null;
 }
 
 export interface Payment {
@@ -196,6 +211,7 @@ export interface Ledger {
   totalPaid: number;
   balance: number;
   overdue: number;
+  penaltyTotal: number;
   installments: Installment[];
   payments: Payment[];
 }
@@ -317,3 +333,13 @@ export interface NotificationItem {
 }
 
 export interface Lookup { id: number; name: string; code?: string | null; }
+
+export interface Child {
+  studentId: number;
+  admissionNo: string;
+  fullName: string;
+  className: string;
+  sectionName: string;
+  photoUrl?: string | null;
+  rollNo?: string | null;
+}

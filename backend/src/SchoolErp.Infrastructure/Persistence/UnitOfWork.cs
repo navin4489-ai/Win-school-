@@ -18,18 +18,24 @@ public sealed class UnitOfWork : IUnitOfWork
         if (!_db.Database.IsRelational() || _db.Database.CurrentTransaction is not null)
             return await action(ct);
 
-        await using var transaction = await _db.Database.BeginTransactionAsync(ct);
-        try
+        // A retrying execution strategy only allows user transactions inside its own
+        // ExecuteAsync, so the whole unit is retried together after a transient failure.
+        var strategy = _db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async token =>
         {
-            var result = await action(ct);
-            await transaction.CommitAsync(ct);
-            return result;
-        }
-        catch
-        {
-            await transaction.RollbackAsync(ct);
-            throw;
-        }
+            await using var transaction = await _db.Database.BeginTransactionAsync(token);
+            try
+            {
+                var result = await action(token);
+                await transaction.CommitAsync(token);
+                return result;
+            }
+            catch
+            {
+                await transaction.RollbackAsync(token);
+                throw;
+            }
+        }, ct);
     }
 }
 

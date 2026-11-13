@@ -210,6 +210,8 @@ class Installment {
     required this.balance,
     required this.status,
     required this.isOverdue,
+    this.penaltyAmount = 0,
+    this.totalAmount = 0,
   });
 
   final int id;
@@ -220,6 +222,8 @@ class Installment {
   final double balance;
   final String status;
   final bool isOverdue;
+  final double penaltyAmount;
+  final double totalAmount;
 
   factory Installment.fromJson(Map<String, dynamic> json) => Installment(
         id: asInt(json['id']),
@@ -230,6 +234,155 @@ class Installment {
         balance: asDouble(json['balance']),
         status: asText(json['status']),
         isOverdue: json['isOverdue'] == true,
+        penaltyAmount: asDouble(json['penaltyAmount']),
+        totalAmount: asDouble(json['totalAmount']),
+      );
+}
+
+/// One row of the signed-in staff member's own attendance register.
+class StaffAttendance {
+  const StaffAttendance({
+    required this.employeeId,
+    required this.employeeName,
+    required this.employeeNo,
+    required this.date,
+    required this.status,
+    required this.isLate,
+    this.checkInUtc,
+    this.checkOutUtc,
+    this.checkInPhotoUrl,
+    this.checkOutPhotoUrl,
+    this.checkInAddress,
+    this.checkOutAddress,
+  });
+
+  final int employeeId;
+  final String employeeName;
+  final String employeeNo;
+  final String date;
+  final String status;
+  final bool isLate;
+  final DateTime? checkInUtc;
+  final DateTime? checkOutUtc;
+  final String? checkInPhotoUrl;
+  final String? checkOutPhotoUrl;
+  final String? checkInAddress;
+  final String? checkOutAddress;
+
+  bool get hasCheckIn => checkInUtc != null;
+  bool get hasCheckOut => checkOutUtc != null;
+
+  factory StaffAttendance.fromJson(Map<String, dynamic> json) => StaffAttendance(
+        employeeId: asInt(json['employeeId']),
+        employeeName: asText(json['employeeName']),
+        employeeNo: asText(json['employeeNo']),
+        date: asText(json['date']),
+        status: asText(json['status']),
+        isLate: json['isLate'] == true,
+        checkInUtc: _dateTimeOrNull(json['checkInUtc']),
+        checkOutUtc: _dateTimeOrNull(json['checkOutUtc']),
+        checkInPhotoUrl: json['checkInPhotoUrl']?.toString(),
+        checkOutPhotoUrl: json['checkOutPhotoUrl']?.toString(),
+        checkInAddress: json['checkInAddress']?.toString(),
+        checkOutAddress: json['checkOutAddress']?.toString(),
+      );
+}
+
+class StaffRegister {
+  const StaffRegister({
+    required this.employeeId,
+    required this.employeeName,
+    required this.employeeNo,
+    required this.totalDays,
+    required this.present,
+    required this.absent,
+    required this.late,
+    required this.hoursWorked,
+    this.records = const [],
+  });
+
+  final int employeeId;
+  final String employeeName;
+  final String employeeNo;
+  final int totalDays;
+  final int present;
+  final int absent;
+  final int late;
+  final double hoursWorked;
+  final List<StaffAttendance> records;
+
+  factory StaffRegister.fromJson(Map<String, dynamic> json) => StaffRegister(
+        employeeId: asInt(json['employeeId']),
+        employeeName: asText(json['employeeName']),
+        employeeNo: asText(json['employeeNo']),
+        totalDays: asInt(json['totalDays']),
+        present: asInt(json['present']),
+        absent: asInt(json['absent']),
+        late: asInt(json['late']),
+        hoursWorked: asDouble(json['hoursWorked']),
+        records: (json['records'] as List<dynamic>? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(StaffAttendance.fromJson)
+            .toList(),
+      );
+}
+
+/// A payment session opened with the gateway before the customer pays.
+class PaymentOrder {
+  const PaymentOrder({
+    required this.orderId,
+    required this.paymentId,
+    required this.amount,
+    required this.currency,
+    required this.gateway,
+    required this.studentId,
+    required this.studentName,
+    this.installmentName,
+  });
+
+  final String orderId;
+  final String paymentId;
+  final double amount;
+  final String currency;
+  final String gateway;
+  final int studentId;
+  final String studentName;
+  final String? installmentName;
+
+  factory PaymentOrder.fromJson(Map<String, dynamic> json) => PaymentOrder(
+        orderId: asText(json['orderId']),
+        paymentId: asText(json['paymentId']),
+        amount: asDouble(json['amount']),
+        currency: asText(json['currency']),
+        gateway: asText(json['gateway']),
+        studentId: asInt(json['studentId']),
+        studentName: asText(json['studentName']),
+        installmentName: json['installmentName']?.toString(),
+      );
+}
+
+/// A child of the signed-in parent.
+class Child {
+  const Child({
+    required this.studentId,
+    required this.fullName,
+    required this.admissionNo,
+    required this.className,
+    required this.sectionName,
+  });
+
+  final int studentId;
+  final String fullName;
+  final String admissionNo;
+  final String className;
+  final String sectionName;
+
+  factory Child.fromJson(Map<String, dynamic> json) => Child(
+        studentId: asInt(json['studentId']),
+        fullName: asText(json['fullName']),
+        admissionNo: asText(json['admissionNo']),
+        className: asText(json['className']),
+        sectionName: asText(json['sectionName']),
       );
 }
 
@@ -243,7 +396,9 @@ class Ledger {
     required this.totalPaid,
     required this.balance,
     required this.overdue,
+    this.penaltyTotal = 0,
     this.installments = const [],
+    this.payments = const [],
   });
 
   final int studentId;
@@ -254,7 +409,9 @@ class Ledger {
   final double totalPaid;
   final double balance;
   final double overdue;
+  final double penaltyTotal;
   final List<Installment> installments;
+  final List<PaymentReceipt> payments;
 
   factory Ledger.fromJson(Map<String, dynamic> json) => Ledger(
         studentId: asInt(json['studentId']),
@@ -265,10 +422,43 @@ class Ledger {
         totalPaid: asDouble(json['totalPaid']),
         balance: asDouble(json['balance']),
         overdue: asDouble(json['overdue']),
+        penaltyTotal: asDouble(json['penaltyTotal']),
         installments: (json['installments'] as List<dynamic>? ?? [])
             .whereType<Map<String, dynamic>>()
             .map(Installment.fromJson)
             .toList(),
+        payments: (json['payments'] as List<dynamic>? ?? [])
+            .whereType<Map<String, dynamic>>()
+            .map(PaymentReceipt.fromJson)
+            .toList(),
+      );
+}
+
+/// A payment receipt shown in the parent's ledger.
+class PaymentReceipt {
+  const PaymentReceipt({
+    required this.id,
+    required this.receiptNo,
+    required this.amount,
+    required this.mode,
+    required this.status,
+    required this.paidAtUtc,
+  });
+
+  final int id;
+  final String receiptNo;
+  final double amount;
+  final String mode;
+  final String status;
+  final DateTime? paidAtUtc;
+
+  factory PaymentReceipt.fromJson(Map<String, dynamic> json) => PaymentReceipt(
+        id: asInt(json['id']),
+        receiptNo: asText(json['receiptNo']),
+        amount: asDouble(json['amount']),
+        mode: asText(json['mode']),
+        status: asText(json['status']),
+        paidAtUtc: _dateTimeOrNull(json['paidAtUtc']),
       );
 }
 
@@ -491,3 +681,8 @@ double asDouble(dynamic value) {
 }
 
 String asText(dynamic value) => value?.toString() ?? '';
+
+DateTime? _dateTimeOrNull(dynamic value) {
+  if (value == null) return null;
+  return DateTime.tryParse(value.toString())?.toLocal();
+}

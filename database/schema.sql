@@ -359,7 +359,15 @@ BEGIN
     [CheckOutUtc] DATETIME2 NULL,
     [Status] INT NOT NULL,
     [Remarks] NVARCHAR(2000) NULL,
-    [Source] INT NOT NULL
+    [Source] INT NOT NULL,
+    [CheckInPhotoUrl] NVARCHAR(256) NULL,
+    [CheckOutPhotoUrl] NVARCHAR(256) NULL,
+    [CheckInLatitude] DECIMAL(18,2) NULL,
+    [CheckInLongitude] DECIMAL(18,2) NULL,
+    [CheckOutLatitude] DECIMAL(18,2) NULL,
+    [CheckOutLongitude] DECIMAL(18,2) NULL,
+    [CheckInAddress] NVARCHAR(256) NULL,
+    [CheckOutAddress] NVARCHAR(256) NULL
   );
 END;
 GO
@@ -513,7 +521,32 @@ BEGIN
     [DueDate] DATE NOT NULL,
     [Amount] DECIMAL(18,2) NOT NULL,
     [PaidAmount] DECIMAL(18,2) NOT NULL,
+    [PenaltyAmount] DECIMAL(18,2) NOT NULL,
     [Status] INT NOT NULL
+  );
+END;
+GO
+
+IF OBJECT_ID(N'dbo.FeePenalty', N'U') IS NULL
+BEGIN
+  CREATE TABLE [dbo].[FeePenalty] (
+    [Id] INT IDENTITY(1,1) NOT NULL PRIMARY KEY,
+    [SchoolId] INT NOT NULL,
+    [BranchId] INT NULL,
+    [CreatedAtUtc] DATETIME2 NOT NULL CONSTRAINT [DF_FeePenalty_CreatedAtUtc] DEFAULT SYSUTCDATETIME(),
+    [CreatedBy] NVARCHAR(256) NULL,
+    [ModifiedAtUtc] DATETIME2 NULL,
+    [ModifiedBy] NVARCHAR(256) NULL,
+    [IsDeleted] BIT NOT NULL CONSTRAINT [DF_FeePenalty_IsDeleted] DEFAULT 0,
+    [RowVersion] ROWVERSION NOT NULL,
+    [StudentFeeAssignmentId] INT NOT NULL,
+    [FeeInstallmentId] INT NOT NULL,
+    [StudentId] INT NOT NULL,
+    [PenaltyDate] DATE NOT NULL,
+    [Amount] DECIMAL(18,2) NOT NULL,
+    [DaysLate] INT NOT NULL,
+    [Reason] NVARCHAR(2000) NOT NULL,
+    [NotificationId] INT NULL
   );
 END;
 GO
@@ -986,6 +1019,7 @@ BEGIN
     [Country] NVARCHAR(32) NOT NULL,
     [TimeZone] NVARCHAR(256) NOT NULL,
     [CurrencyCode] NVARCHAR(32) NOT NULL,
+    [EnabledModules] NVARCHAR(256) NULL,
     [CreatedAtUtc] DATETIME2 NOT NULL,
     [ModifiedAtUtc] DATETIME2 NULL
   );
@@ -1588,6 +1622,18 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_FeeInstallment_StudentFeeAssignment_StudentFeeAssignmentId')
   ALTER TABLE [dbo].[FeeInstallment] ADD CONSTRAINT [FK_FeeInstallment_StudentFeeAssignment_StudentFeeAssignmentId] FOREIGN KEY ([StudentFeeAssignmentId]) REFERENCES [dbo].[StudentFeeAssignment] ([Id]) ON DELETE NO ACTION;
 GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_FeePenalty_StudentFeeAssignment_StudentFeeAssignmentId')
+  ALTER TABLE [dbo].[FeePenalty] ADD CONSTRAINT [FK_FeePenalty_StudentFeeAssignment_StudentFeeAssignmentId] FOREIGN KEY ([StudentFeeAssignmentId]) REFERENCES [dbo].[StudentFeeAssignment] ([Id]) ON DELETE NO ACTION;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_FeePenalty_FeeInstallment_FeeInstallmentId')
+  ALTER TABLE [dbo].[FeePenalty] ADD CONSTRAINT [FK_FeePenalty_FeeInstallment_FeeInstallmentId] FOREIGN KEY ([FeeInstallmentId]) REFERENCES [dbo].[FeeInstallment] ([Id]) ON DELETE NO ACTION;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_FeePenalty_Student_StudentId')
+  ALTER TABLE [dbo].[FeePenalty] ADD CONSTRAINT [FK_FeePenalty_Student_StudentId] FOREIGN KEY ([StudentId]) REFERENCES [dbo].[Student] ([Id]) ON DELETE NO ACTION;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_FeePenalty_Notification_NotificationId')
+  ALTER TABLE [dbo].[FeePenalty] ADD CONSTRAINT [FK_FeePenalty_Notification_NotificationId] FOREIGN KEY ([NotificationId]) REFERENCES [dbo].[Notification] ([Id]) ON DELETE NO ACTION;
+GO
 IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_FeeStructure_AcademicSession_AcademicSessionId')
   ALTER TABLE [dbo].[FeeStructure] ADD CONSTRAINT [FK_FeeStructure_AcademicSession_AcademicSessionId] FOREIGN KEY ([AcademicSessionId]) REFERENCES [dbo].[AcademicSession] ([Id]) ON DELETE NO ACTION;
 GO
@@ -1896,57 +1942,60 @@ GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_FeeInstallment_24' AND object_id = OBJECT_ID(N'dbo.FeeInstallment'))
   CREATE UNIQUE INDEX [UX_FeeInstallment_24] ON [dbo].[FeeInstallment] ([StudentFeeAssignmentId], [Name]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Payment_25' AND object_id = OBJECT_ID(N'dbo.Payment'))
-  CREATE UNIQUE INDEX [UX_Payment_25] ON [dbo].[Payment] ([SchoolId], [ReceiptNo]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_FeePenalty_25' AND object_id = OBJECT_ID(N'dbo.FeePenalty'))
+  CREATE UNIQUE INDEX [UX_FeePenalty_25] ON [dbo].[FeePenalty] ([FeeInstallmentId], [PenaltyDate]) WHERE [IsDeleted] = 0;
 GO
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Payment_26' AND object_id = OBJECT_ID(N'dbo.Payment'))
-  CREATE UNIQUE INDEX [UX_Payment_26] ON [dbo].[Payment] ([SchoolId], [IdempotencyKey]) WHERE [IdempotencyKey] IS NOT NULL;
+  CREATE UNIQUE INDEX [UX_Payment_26] ON [dbo].[Payment] ([SchoolId], [ReceiptNo]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Discount_27' AND object_id = OBJECT_ID(N'dbo.Discount'))
-  CREATE UNIQUE INDEX [UX_Discount_27] ON [dbo].[Discount] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Payment_27' AND object_id = OBJECT_ID(N'dbo.Payment'))
+  CREATE UNIQUE INDEX [UX_Payment_27] ON [dbo].[Payment] ([SchoolId], [IdempotencyKey]) WHERE [IdempotencyKey] IS NOT NULL;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_StudentDiscount_28' AND object_id = OBJECT_ID(N'dbo.StudentDiscount'))
-  CREATE UNIQUE INDEX [UX_StudentDiscount_28] ON [dbo].[StudentDiscount] ([SchoolId], [StudentId], [DiscountId], [AcademicSessionId]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Discount_28' AND object_id = OBJECT_ID(N'dbo.Discount'))
+  CREATE UNIQUE INDEX [UX_Discount_28] ON [dbo].[Discount] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ExpenseCategory_29' AND object_id = OBJECT_ID(N'dbo.ExpenseCategory'))
-  CREATE UNIQUE INDEX [UX_ExpenseCategory_29] ON [dbo].[ExpenseCategory] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_StudentDiscount_29' AND object_id = OBJECT_ID(N'dbo.StudentDiscount'))
+  CREATE UNIQUE INDEX [UX_StudentDiscount_29] ON [dbo].[StudentDiscount] ([SchoolId], [StudentId], [DiscountId], [AcademicSessionId]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_SalaryComponent_30' AND object_id = OBJECT_ID(N'dbo.SalaryComponent'))
-  CREATE UNIQUE INDEX [UX_SalaryComponent_30] ON [dbo].[SalaryComponent] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ExpenseCategory_30' AND object_id = OBJECT_ID(N'dbo.ExpenseCategory'))
+  CREATE UNIQUE INDEX [UX_ExpenseCategory_30] ON [dbo].[ExpenseCategory] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_PayrollRun_31' AND object_id = OBJECT_ID(N'dbo.PayrollRun'))
-  CREATE UNIQUE INDEX [UX_PayrollRun_31] ON [dbo].[PayrollRun] ([SchoolId], [Year], [Month]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_SalaryComponent_31' AND object_id = OBJECT_ID(N'dbo.SalaryComponent'))
+  CREATE UNIQUE INDEX [UX_SalaryComponent_31] ON [dbo].[SalaryComponent] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_StudentAttendance_32' AND object_id = OBJECT_ID(N'dbo.StudentAttendance'))
-  CREATE UNIQUE INDEX [UX_StudentAttendance_32] ON [dbo].[StudentAttendance] ([SchoolId], [StudentId], [AttendanceDate]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_PayrollRun_32' AND object_id = OBJECT_ID(N'dbo.PayrollRun'))
+  CREATE UNIQUE INDEX [UX_PayrollRun_32] ON [dbo].[PayrollRun] ([SchoolId], [Year], [Month]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_EmployeeAttendance_33' AND object_id = OBJECT_ID(N'dbo.EmployeeAttendance'))
-  CREATE UNIQUE INDEX [UX_EmployeeAttendance_33] ON [dbo].[EmployeeAttendance] ([SchoolId], [EmployeeId], [AttendanceDate]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_StudentAttendance_33' AND object_id = OBJECT_ID(N'dbo.StudentAttendance'))
+  CREATE UNIQUE INDEX [UX_StudentAttendance_33] ON [dbo].[StudentAttendance] ([SchoolId], [StudentId], [AttendanceDate]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Vehicle_34' AND object_id = OBJECT_ID(N'dbo.Vehicle'))
-  CREATE UNIQUE INDEX [UX_Vehicle_34] ON [dbo].[Vehicle] ([SchoolId], [RegistrationNo]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_EmployeeAttendance_34' AND object_id = OBJECT_ID(N'dbo.EmployeeAttendance'))
+  CREATE UNIQUE INDEX [UX_EmployeeAttendance_34] ON [dbo].[EmployeeAttendance] ([SchoolId], [EmployeeId], [AttendanceDate]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_TransportRoute_35' AND object_id = OBJECT_ID(N'dbo.TransportRoute'))
-  CREATE UNIQUE INDEX [UX_TransportRoute_35] ON [dbo].[TransportRoute] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Vehicle_35' AND object_id = OBJECT_ID(N'dbo.Vehicle'))
+  CREATE UNIQUE INDEX [UX_Vehicle_35] ON [dbo].[Vehicle] ([SchoolId], [RegistrationNo]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Book_36' AND object_id = OBJECT_ID(N'dbo.Book'))
-  CREATE UNIQUE INDEX [UX_Book_36] ON [dbo].[Book] ([SchoolId], [Isbn]) WHERE [Isbn] IS NOT NULL AND [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_TransportRoute_36' AND object_id = OBJECT_ID(N'dbo.TransportRoute'))
+  CREATE UNIQUE INDEX [UX_TransportRoute_36] ON [dbo].[TransportRoute] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_InventoryItem_37' AND object_id = OBJECT_ID(N'dbo.InventoryItem'))
-  CREATE UNIQUE INDEX [UX_InventoryItem_37] ON [dbo].[InventoryItem] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Book_37' AND object_id = OBJECT_ID(N'dbo.Book'))
+  CREATE UNIQUE INDEX [UX_Book_37] ON [dbo].[Book] ([SchoolId], [Isbn]) WHERE [Isbn] IS NOT NULL AND [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_PurchaseOrder_38' AND object_id = OBJECT_ID(N'dbo.PurchaseOrder'))
-  CREATE UNIQUE INDEX [UX_PurchaseOrder_38] ON [dbo].[PurchaseOrder] ([SchoolId], [OrderNo]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_InventoryItem_38' AND object_id = OBJECT_ID(N'dbo.InventoryItem'))
+  CREATE UNIQUE INDEX [UX_InventoryItem_38] ON [dbo].[InventoryItem] ([SchoolId], [Code]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Examination_39' AND object_id = OBJECT_ID(N'dbo.Examination'))
-  CREATE UNIQUE INDEX [UX_Examination_39] ON [dbo].[Examination] ([SchoolId], [AcademicSessionId], [Name]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_PurchaseOrder_39' AND object_id = OBJECT_ID(N'dbo.PurchaseOrder'))
+  CREATE UNIQUE INDEX [UX_PurchaseOrder_39] ON [dbo].[PurchaseOrder] ([SchoolId], [OrderNo]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ExamSubject_40' AND object_id = OBJECT_ID(N'dbo.ExamSubject'))
-  CREATE UNIQUE INDEX [UX_ExamSubject_40] ON [dbo].[ExamSubject] ([ExaminationId], [ClassId], [SubjectId]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_Examination_40' AND object_id = OBJECT_ID(N'dbo.Examination'))
+  CREATE UNIQUE INDEX [UX_Examination_40] ON [dbo].[Examination] ([SchoolId], [AcademicSessionId], [Name]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_StudentMark_41' AND object_id = OBJECT_ID(N'dbo.StudentMark'))
-  CREATE UNIQUE INDEX [UX_StudentMark_41] ON [dbo].[StudentMark] ([ExaminationId], [ExamSubjectId], [StudentId]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ExamSubject_41' AND object_id = OBJECT_ID(N'dbo.ExamSubject'))
+  CREATE UNIQUE INDEX [UX_ExamSubject_41] ON [dbo].[ExamSubject] ([ExaminationId], [ClassId], [SubjectId]) WHERE [IsDeleted] = 0;
 GO
-IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ReportCard_42' AND object_id = OBJECT_ID(N'dbo.ReportCard'))
-  CREATE UNIQUE INDEX [UX_ReportCard_42] ON [dbo].[ReportCard] ([ExaminationId], [StudentId]) WHERE [IsDeleted] = 0;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_StudentMark_42' AND object_id = OBJECT_ID(N'dbo.StudentMark'))
+  CREATE UNIQUE INDEX [UX_StudentMark_42] ON [dbo].[StudentMark] ([ExaminationId], [ExamSubjectId], [StudentId]) WHERE [IsDeleted] = 0;
+GO
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = N'UX_ReportCard_43' AND object_id = OBJECT_ID(N'dbo.ReportCard'))
+  CREATE UNIQUE INDEX [UX_ReportCard_43] ON [dbo].[ReportCard] ([ExaminationId], [StudentId]) WHERE [IsDeleted] = 0;
 GO

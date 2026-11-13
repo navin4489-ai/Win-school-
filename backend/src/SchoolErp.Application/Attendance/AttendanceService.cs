@@ -209,6 +209,9 @@ public sealed class AttendanceService
 
     public async Task<List<StaffAttendanceDto>> GetStaffAttendanceAsync(DateOnly date, CancellationToken ct = default)
     {
+        if (!IsAdmin() && !_user.HasPermission(Permissions.HrRead))
+            throw DomainException.Forbidden("Only the principal or HR can read the whole-school register.");
+
         var employees = await _db.Employees
             .Where(e => e.SchoolId == SchoolId && e.Status == EmploymentStatus.Active && !e.IsDeleted)
             .OrderBy(e => e.FirstName).ToListAsync(ct);
@@ -225,7 +228,11 @@ public sealed class AttendanceService
                 EmployeeId = e.Id, EmployeeName = e.FullName, EmployeeNo = e.EmployeeNo, Date = date,
                 CheckInUtc = record?.CheckInUtc, CheckOutUtc = record?.CheckOutUtc,
                 Status = record?.Status ?? AttendanceStatus.Absent,
-                IsLate = record?.CheckInUtc?.TimeOfDay > LateAfter
+                IsLate = record?.CheckInUtc?.TimeOfDay > LateAfter,
+                CheckInPhotoUrl = record?.CheckInPhotoUrl, CheckOutPhotoUrl = record?.CheckOutPhotoUrl,
+                CheckInLatitude = record?.CheckInLatitude, CheckInLongitude = record?.CheckInLongitude,
+                CheckOutLatitude = record?.CheckOutLatitude, CheckOutLongitude = record?.CheckOutLongitude,
+                CheckInAddress = record?.CheckInAddress, CheckOutAddress = record?.CheckOutAddress
             };
         }).ToList();
     }
@@ -257,6 +264,10 @@ public sealed class AttendanceService
         record.CheckInUtc = now;
         record.Status = now.TimeOfDay > LateAfter ? AttendanceStatus.Late : AttendanceStatus.Present;
         record.Source = request.Source;
+        record.CheckInPhotoUrl = Trim(request.PhotoUrl);
+        record.CheckInLatitude = ToDecimal(request.Latitude);
+        record.CheckInLongitude = ToDecimal(request.Longitude);
+        record.CheckInAddress = Trim(request.Address);
 
         await _uow.SaveChangesAsync(ct);
         return await MapStaffAsync(record, ct);
@@ -276,8 +287,72 @@ public sealed class AttendanceService
         if (record.CheckOutUtc is not null) throw DomainException.Conflict("Already checked out for today.");
 
         record.CheckOutUtc = _clock.UtcNow;
+        record.CheckOutPhotoUrl = Trim(request.PhotoUrl);
+        record.CheckOutLatitude = ToDecimal(request.Latitude);
+        record.CheckOutLongitude = ToDecimal(request.Longitude);
+        record.CheckOutAddress = Trim(request.Address);
+
         await _uow.SaveChangesAsync(ct);
         return await MapStaffAsync(record, ct);
+    }
+
+    /// <summary>
+    /// The signed-in employee's own attendance for a date range. Staff do not hold
+    /// hr.read, so they cannot read the whole-school register but can always read their own.
+    /// </summary>
+    public async Task<StaffAttendanceRangeDto> GetMyAttendanceAsync(DateOnly from, DateOnly to,
+        CancellationToken ct = default)
+    {
+        if (to < from) throw DomainException.Validation("The end date must be on or after the start date.");
+
+        var employeeId = _user.EmployeeId
+            ?? throw DomainException.Forbidden("Your account is not linked to an employee record.");
+
+        var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && e.SchoolId == SchoolId && !e.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Employee");
+
+        var records = await _db.EmployeeAttendances
+            .Where(a => a.SchoolId == SchoolId && a.EmployeeId == employeeId &&
+                        a.AttendanceDate >= from && a.AttendanceDate <= to && !a.IsDeleted)
+            .OrderBy(a => a.AttendanceDate)
+            .ToListAsync(ct);
+
+        var hours = records
+            .Where(r => r.CheckInUtc is not null && r.CheckOutUtc is not null)
+            .Sum(r => Math.Round((decimal)(r.CheckOutUtc!.Value - r.CheckInUtc!.Value).TotalHours, 2));
+
+        return new StaffAttendanceRangeDto
+        {
+            EmployeeId = employee.Id,
+            EmployeeName = employee.FullName,
+            EmployeeNo = employee.EmployeeNo,
+            From = from,
+            To = to,
+            TotalDays = records.Count,
+            Present = records.Count(r => r.Status == AttendanceStatus.Present),
+            Absent = records.Count(r => r.Status == AttendanceStatus.Absent),
+            Late = records.Count(r => r.Status == AttendanceStatus.Late),
+            HoursWorked = hours,
+            Records = records.Select(r => new StaffAttendanceDto
+            {
+                EmployeeId = employee.Id,
+                EmployeeName = employee.FullName,
+                EmployeeNo = employee.EmployeeNo,
+                Date = r.AttendanceDate,
+                CheckInUtc = r.CheckInUtc,
+                CheckOutUtc = r.CheckOutUtc,
+                Status = r.Status,
+                IsLate = r.CheckInUtc?.TimeOfDay > LateAfter,
+                CheckInPhotoUrl = r.CheckInPhotoUrl,
+                CheckOutPhotoUrl = r.CheckOutPhotoUrl,
+                CheckInLatitude = r.CheckInLatitude,
+                CheckInLongitude = r.CheckInLongitude,
+                CheckOutLatitude = r.CheckOutLatitude,
+                CheckOutLongitude = r.CheckOutLongitude,
+                CheckInAddress = r.CheckInAddress,
+                CheckOutAddress = r.CheckOutAddress
+            }).ToList()
+        };
     }
 
     private async Task EnsureCanMarkAsync(int classId, int sectionId, CancellationToken ct)
@@ -347,7 +422,20 @@ public sealed class AttendanceService
         {
             EmployeeId = employee.Id, EmployeeName = employee.FullName, EmployeeNo = employee.EmployeeNo,
             Date = record.AttendanceDate, CheckInUtc = record.CheckInUtc, CheckOutUtc = record.CheckOutUtc,
-            Status = record.Status, IsLate = record.CheckInUtc?.TimeOfDay > LateAfter
+            Status = record.Status, IsLate = record.CheckInUtc?.TimeOfDay > LateAfter,
+            CheckInPhotoUrl = record.CheckInPhotoUrl, CheckOutPhotoUrl = record.CheckOutPhotoUrl,
+            CheckInLatitude = record.CheckInLatitude, CheckInLongitude = record.CheckInLongitude,
+            CheckOutLatitude = record.CheckOutLatitude, CheckOutLongitude = record.CheckOutLongitude,
+            CheckInAddress = record.CheckInAddress, CheckOutAddress = record.CheckOutAddress
         };
     }
+
+    private static string? Trim(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var trimmed = value.Trim();
+        return trimmed.Length > 250 ? trimmed[..250] : trimmed;
+    }
+
+    private static decimal? ToDecimal(double? value) => value is null ? null : Math.Round((decimal)value.Value, 6);
 }

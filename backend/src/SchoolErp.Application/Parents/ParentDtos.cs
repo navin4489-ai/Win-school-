@@ -20,7 +20,7 @@ public sealed class ChildOverviewDto
     public FeeSummaryDto Fees { get; init; } = new();
     public IReadOnlyList<ResultSummaryDto> RecentResults { get; init; } = Array.Empty<ResultSummaryDto>();
     public IReadOnlyList<HomeworkSummaryDto> PendingHomework { get; init; } = Array.Empty<HomeworkSummaryDto>();
-    public IReadOnlyList<AnnouncementDto> Announcements { get; init; } = Array.Empty<AnnouncementDto>();
+    public IReadOnlyList<ParentAnnouncementDto> Announcements { get; init; } = Array.Empty<ParentAnnouncementDto>();
 }
 
 public sealed class AttendanceSummaryDto
@@ -72,7 +72,10 @@ public sealed class HomeworkSummaryDto
     public bool Submitted { get; init; }
 }
 
-public sealed class AnnouncementDto
+// Named with the "Parent" prefix because SchoolErp.Application.Administration already
+// exposes an AnnouncementDto. Swashbuckle keys schemas by the short type name, so two
+// DTOs sharing a name make the whole Swagger document fail to generate.
+public sealed class ParentAnnouncementDto
 {
     public int Id { get; init; }
     public string Title { get; init; } = string.Empty;

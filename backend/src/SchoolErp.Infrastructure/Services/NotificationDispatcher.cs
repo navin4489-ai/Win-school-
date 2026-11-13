@@ -48,7 +48,7 @@ public sealed class NotificationDispatcher : BackgroundService
         } while (await timer.WaitForNextTickAsync(stoppingToken));
     }
 
-    private async Task DispatchBatchAsync(CancellationToken ct)
+    public async Task DispatchBatchAsync(CancellationToken ct)
     {
         await using var scope = _scopeFactory.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

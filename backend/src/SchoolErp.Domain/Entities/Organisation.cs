@@ -20,6 +20,13 @@ public class School : Entity
     public string TimeZone { get; set; } = "Asia/Kolkata";
     public string CurrencyCode { get; set; } = "INR";
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Comma separated list of switched-on modules (see SchoolModules). Null means every
+    /// module is on, which keeps existing schools working unchanged.
+    /// </summary>
+    public string? EnabledModules { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
     public DateTime? ModifiedAtUtc { get; set; }
 }

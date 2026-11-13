@@ -46,8 +46,19 @@ public sealed class AuthService
             query = query.Where(u => u.SchoolId == schoolId);
         }
 
-        var user = await query.OrderBy(u => u.Id).FirstOrDefaultAsync(ct);
+        var candidates = await query.OrderBy(u => u.Id).Take(2).ToListAsync(ct);
         var now = _clock.UtcNow;
+
+        // The same email may legitimately exist in two schools. Never guess which one the
+        // person meant: that would sign them into the wrong school's data.
+        if (candidates.Count > 1)
+        {
+            await AuditLoginAsync(null, normalized, false, "Email exists in several schools", ct);
+            throw new DomainException("school_code_required",
+                "This email is registered with more than one school. Enter your school code to sign in.", 400);
+        }
+
+        var user = candidates.FirstOrDefault();
 
         if (user is null)
         {
@@ -59,6 +70,13 @@ public sealed class AuthService
         {
             await AuditLoginAsync(user, normalized, false, "Inactive account", ct);
             throw DomainException.Unauthorized("This account is disabled.");
+        }
+
+        var schoolActive = await _db.Schools.AnyAsync(s => s.Id == user.SchoolId && s.IsActive, ct);
+        if (!schoolActive)
+        {
+            await AuditLoginAsync(user, normalized, false, "School deactivated", ct);
+            throw DomainException.Unauthorized("This school's account is not active. Contact the administrator.");
         }
 
         if (user.LockoutEndUtc is not null && user.LockoutEndUtc > now)
@@ -77,7 +95,7 @@ public sealed class AuthService
                 user.FailedLoginCount = 0;
             }
 
-            await _uow.SaveChangesAsync(ct);
+            await SaveLoginBookkeepingAsync(ct);
             await AuditLoginAsync(user, normalized, false, "Invalid password", ct);
             throw DomainException.Unauthorized();
         }
@@ -87,9 +105,35 @@ public sealed class AuthService
         user.LastLoginAtUtc = now;
 
         var response = await IssueTokensAsync(user, ct);
-        await _uow.SaveChangesAsync(ct);
+        await SaveLoginBookkeepingAsync(ct);
         await AuditLoginAsync(user, normalized, true, null, ct);
         return response;
+    }
+
+    /// <summary>
+    /// Sign-in only touches bookkeeping columns (last login, failed attempts), so when the
+    /// same account signs in on two devices at once the latest write simply wins instead of
+    /// failing one of the sign-ins with a concurrency error.
+    /// </summary>
+    private async Task SaveLoginBookkeepingAsync(CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                await _uow.SaveChangesAsync(ct);
+                return;
+            }
+            catch (DbUpdateConcurrencyException ex) when (attempt < 8)
+            {
+                foreach (var entry in ex.Entries)
+                {
+                    var current = await entry.GetDatabaseValuesAsync(ct);
+                    if (current is null) throw;
+                    entry.OriginalValues.SetValues(current);
+                }
+            }
+        }
     }
 
     public async Task<AuthResponse> RefreshAsync(string refreshToken, CancellationToken ct = default)
@@ -185,14 +229,13 @@ public sealed class AuthService
 
     private async Task<AuthResponse> IssueTokensAsync(UserAccount user, CancellationToken ct)
     {
-        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId && !r.IsDeleted, ct)
+        // Login runs before there is a school on the request, so the role is read across
+        // the filter but pinned to the user's own school.
+        var role = await _db.Roles.IgnoreQueryFilters()
+            .FirstOrDefaultAsync(r => r.Id == user.RoleId && r.SchoolId == user.SchoolId && !r.IsDeleted, ct)
             ?? throw DomainException.Unauthorized("The account role is not configured.");
 
-        var permissions = await (
-            from rp in _db.RolePermissions
-            join p in _db.Permissions on rp.PermissionId equals p.Id
-            where rp.RoleId == role.Id
-            select p.Code).Distinct().ToListAsync(ct);
+        var permissions = await EffectivePermissionsAsync(user, role, ct);
 
         var access = _tokens.CreateAccessToken(user, role.Code, permissions);
         var refresh = _tokens.CreateRefreshToken();
@@ -218,14 +261,31 @@ public sealed class AuthService
 
     private async Task<UserProfileDto> BuildProfileAsync(UserAccount user, CancellationToken ct)
     {
-        var role = await _db.Roles.FirstOrDefaultAsync(r => r.Id == user.RoleId, ct);
-        var permissions = await (
-            from rp in _db.RolePermissions
-            join p in _db.Permissions on rp.PermissionId equals p.Id
-            where rp.RoleId == user.RoleId
-            select p.Code).Distinct().ToListAsync(ct);
+        var role = await _db.Roles.IgnoreQueryFilters().FirstOrDefaultAsync(r => r.Id == user.RoleId, ct);
+        var permissions = role is null ? new List<string>() : await EffectivePermissionsAsync(user, role, ct);
 
         return await BuildProfileAsync(user, permissions, role, ct);
+    }
+
+    /// <summary>
+    /// The role's permissions minus those of modules the school has switched off. The
+    /// super admin is never restricted, because they configure the modules.
+    /// </summary>
+    private async Task<List<string>> EffectivePermissionsAsync(UserAccount user, Role role, CancellationToken ct)
+    {
+        var codes = await (
+            from rp in _db.RolePermissions
+            join p in _db.Permissions on rp.PermissionId equals p.Id
+            where rp.RoleId == role.Id
+            select p.Code).Distinct().ToListAsync(ct);
+
+        if (role.Code == RoleCodes.SuperAdmin) return codes;
+
+        var modules = await _db.Schools.Where(s => s.Id == user.SchoolId)
+            .Select(s => s.EnabledModules).FirstOrDefaultAsync(ct);
+        var enabled = SchoolModules.Parse(modules);
+
+        return codes.Where(code => SchoolModules.Allows(enabled, code)).ToList();
     }
 
     private async Task<UserProfileDto> BuildProfileAsync(UserAccount user, IEnumerable<string> permissions,

@@ -65,22 +65,41 @@ public sealed class AppDbContext : DbContext, IAppDbContext
         ["Document"] = typeof(Document),
         ["UserAccount"] = typeof(UserAccount),
         ["Role"] = typeof(Role),
-        ["Permission"] = typeof(Permission)
+        ["Permission"] = typeof(Permission),
+        ["Notification"] = typeof(Notification),
+        ["FeePenalty"] = typeof(FeePenalty)
     };
 
     private readonly ICurrentUser _currentUser;
     private readonly IDateTimeProvider _clock;
+    private readonly INotificationPublisher _publisher;
 
     public AppDbContext(DbContextOptions<AppDbContext> options, ICurrentUser currentUser,
-        IDateTimeProvider clock)
+        IDateTimeProvider clock, INotificationPublisher publisher)
         : base(options)
     {
         _currentUser = currentUser;
         _clock = clock;
+        _publisher = publisher;
     }
 
     // The filter reads this context-scoped value, never a captured request value.
     private int? CurrentSchoolId => _currentUser.SchoolId;
+
+    private bool IsPostgres => Database.ProviderName?.Contains("Npgsql", StringComparison.Ordinal) == true;
+
+    /// <summary>
+    /// Index filters are written in SQL Server syntax; translate them for PostgreSQL
+    /// (quoted identifiers and real booleans).
+    /// </summary>
+    private string Sql(string sqlServerFilter) => !IsPostgres
+        ? sqlServerFilter
+        : System.Text.RegularExpressions.Regex.Replace(sqlServerFilter, @"\[(\w+)\]", "\"$1\"")
+            .Replace("\"IsDeleted\" = 0", "\"IsDeleted\" = false");
+
+    // Background jobs and start-up seeding run without a request and see every school.
+    // A web request without a school (anonymous, or a malformed token) sees nothing.
+    private bool IsSystemContext => _currentUser.IsSystemContext;
 
     // --- IAppDbContext ---
     public DbSet<School> Schools => Set<School>();
@@ -120,6 +139,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public DbSet<FeeStructureItem> FeeStructureItems => Set<FeeStructureItem>();
     public DbSet<StudentFeeAssignment> StudentFeeAssignments => Set<StudentFeeAssignment>();
     public DbSet<FeeInstallment> FeeInstallments => Set<FeeInstallment>();
+    public DbSet<FeePenalty> FeePenalties => Set<FeePenalty>();
     public DbSet<Payment> Payments => Set<Payment>();
     public DbSet<PaymentTransaction> PaymentTransactions => Set<PaymentTransaction>();
     public DbSet<Discount> Discounts => Set<Discount>();
@@ -155,6 +175,14 @@ public sealed class AppDbContext : DbContext, IAppDbContext
     public override async Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
     {
         var audits = PrepareChanges();
+        // Notifications are published from here rather than from every service that
+        // creates one, so no code path can create a notification without reaching
+        // the live subscribers.
+        var pendingNotifications = ChangeTracker.Entries<Notification>()
+            .Where(entry => entry.State == EntityState.Added)
+            .Select(entry => entry.Entity)
+            .ToList();
+
         var result = await base.SaveChangesAsync(cancellationToken);
 
         if (audits.Count > 0)
@@ -184,6 +212,18 @@ public sealed class AppDbContext : DbContext, IAppDbContext
             await base.SaveChangesAsync(cancellationToken);
         }
 
+        foreach (var notification in pendingNotifications)
+        {
+            try
+            {
+                _publisher.Publish(notification);
+            }
+            catch (Exception)
+            {
+                // A live-notification failure must never fail the request that wrote the row.
+            }
+        }
+
         return result;
     }
 
@@ -210,14 +250,19 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                                     "A school context is required to create this record.", 400);
                         }
 
-                        if (auditable.BranchId is null) auditable.BranchId = _currentUser.BranchId;
+                        // Only default the branch for rows of the caller's own school; a super
+                        // admin creating another school's rows must not stamp them with theirs.
+                        if (auditable.BranchId is null && auditable.SchoolId == schoolId)
+                            auditable.BranchId = _currentUser.BranchId;
                         if (auditable.CreatedAtUtc == default) auditable.CreatedAtUtc = now;
                         auditable.CreatedBy ??= actor;
                         audits.Add(new PendingAudit(entry, AuditActions.Create, null, Snapshot(entry, current: true)));
                         break;
 
                     case EntityState.Modified:
-                        if (schoolId.HasValue && auditable.SchoolId != schoolId.Value)
+                        // Only the platform operator may change another school's records, and
+                        // only through the explicitly cross-school platform endpoints.
+                        if (schoolId.HasValue && auditable.SchoolId != schoolId.Value && !_currentUser.IsPlatformAdmin)
                             throw DomainException.Forbidden("Cannot modify a record that belongs to another school.");
 
                         auditable.ModifiedAtUtc = now;
@@ -235,6 +280,11 @@ public sealed class AppDbContext : DbContext, IAppDbContext
                             Snapshot(entry, current: false), Snapshot(entry, current: true)));
                         break;
                 }
+
+                // PostgreSQL has no rowversion type, so the application issues the
+                // concurrency token itself. SQL Server generates it in the database.
+                if (IsPostgres && entry.State is EntityState.Added or EntityState.Modified)
+                    auditable.RowVersion = Guid.NewGuid().ToByteArray();
             }
         }
 
@@ -284,7 +334,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
         ApplyTenantFilters(modelBuilder);
     }
 
-    private static void ApplyColumnConventions(ModelBuilder modelBuilder)
+    private void ApplyColumnConventions(ModelBuilder modelBuilder)
     {
         foreach (var entityType in modelBuilder.Model.GetEntityTypes())
         {
@@ -333,9 +383,9 @@ public sealed class AppDbContext : DbContext, IAppDbContext
 
             if (typeof(IAuditable).IsAssignableFrom(entityType.ClrType))
             {
-                modelBuilder.Entity(entityType.ClrType)
-                    .Property(nameof(IAuditable.RowVersion))
-                    .IsRowVersion();
+                var rowVersion = modelBuilder.Entity(entityType.ClrType).Property(nameof(IAuditable.RowVersion));
+                if (IsPostgres) rowVersion.IsConcurrencyToken();
+                else rowVersion.IsRowVersion();
             }
         }
     }
@@ -367,105 +417,109 @@ public sealed class AppDbContext : DbContext, IAppDbContext
         }
     }
 
-    private static void ApplyUniqueIndexes(ModelBuilder modelBuilder)
+    private void ApplyUniqueIndexes(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<School>().HasIndex(s => s.Code).IsUnique();
         modelBuilder.Entity<Permission>().HasIndex(p => p.Code).IsUnique();
         modelBuilder.Entity<RefreshToken>().HasIndex(t => t.TokenHash).IsUnique();
 
         modelBuilder.Entity<Branch>().HasIndex(b => new { b.SchoolId, b.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<AcademicSession>().HasIndex(s => new { s.SchoolId, s.Name }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<SchoolClass>().HasIndex(c => new { c.SchoolId, c.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Section>().HasIndex(s => new { s.SchoolId, s.ClassId, s.Name }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Subject>().HasIndex(s => new { s.SchoolId, s.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<ClassSubject>().HasIndex(cs => new { cs.SchoolId, cs.ClassId, cs.SubjectId })
-            .IsUnique().HasFilter("[IsDeleted] = 0");
+            .IsUnique().HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<TimetableEntry>()
             .HasIndex(t => new { t.SchoolId, t.SectionId, t.DayOfWeek, t.PeriodNo })
-            .IsUnique().HasFilter("[IsDeleted] = 0");
+            .IsUnique().HasFilter(Sql("[IsDeleted] = 0"));
 
         modelBuilder.Entity<Student>().HasIndex(s => new { s.SchoolId, s.AdmissionNo }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<StudentEnrollment>()
             .HasIndex(e => new { e.SchoolId, e.StudentId, e.AcademicSessionId })
-            .IsUnique().HasFilter("[IsDeleted] = 0");
+            .IsUnique().HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<StudentParent>().HasIndex(sp => new { sp.StudentId, sp.GuardianId })
-            .IsUnique().HasFilter("[IsDeleted] = 0");
+            .IsUnique().HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Admission>().HasIndex(a => new { a.SchoolId, a.ApplicationNo }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Employee>().HasIndex(e => new { e.SchoolId, e.EmployeeNo }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Department>().HasIndex(d => new { d.SchoolId, d.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Designation>().HasIndex(d => new { d.SchoolId, d.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<UserAccount>().HasIndex(u => new { u.SchoolId, u.NormalizedEmail }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Role>().HasIndex(r => new { r.SchoolId, r.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<RolePermission>().HasIndex(rp => new { rp.RoleId, rp.PermissionId })
             .IsUnique();
 
         modelBuilder.Entity<FeeCategory>().HasIndex(f => new { f.SchoolId, f.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<FeeStructure>().HasIndex(f => new { f.SchoolId, f.AcademicSessionId, f.ClassId, f.Name })
-            .IsUnique().HasFilter("[IsDeleted] = 0");
+            .IsUnique().HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<FeeStructureItem>()
             .HasIndex(i => new { i.FeeStructureId, i.FeeCategoryId }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<FeeInstallment>()
             .HasIndex(i => new { i.StudentFeeAssignmentId, i.Name }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
+        // One late-fee row per installment per day keeps the penalty job idempotent.
+        modelBuilder.Entity<FeePenalty>()
+            .HasIndex(p => new { p.FeeInstallmentId, p.PenaltyDate }).IsUnique()
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Payment>().HasIndex(p => new { p.SchoolId, p.ReceiptNo }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Payment>().HasIndex(p => new { p.SchoolId, p.IdempotencyKey }).IsUnique()
-            .HasFilter("[IdempotencyKey] IS NOT NULL");
+            .HasFilter(Sql("[IdempotencyKey] IS NOT NULL"));
         modelBuilder.Entity<Discount>().HasIndex(d => new { d.SchoolId, d.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<StudentDiscount>()
             .HasIndex(d => new { d.SchoolId, d.StudentId, d.DiscountId, d.AcademicSessionId })
-            .IsUnique().HasFilter("[IsDeleted] = 0");
+            .IsUnique().HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<ExpenseCategory>().HasIndex(c => new { c.SchoolId, c.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<SalaryComponent>().HasIndex(c => new { c.SchoolId, c.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<PayrollRun>().HasIndex(p => new { p.SchoolId, p.Year, p.Month }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
 
         modelBuilder.Entity<StudentAttendance>()
             .HasIndex(a => new { a.SchoolId, a.StudentId, a.AttendanceDate }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<EmployeeAttendance>()
             .HasIndex(a => new { a.SchoolId, a.EmployeeId, a.AttendanceDate }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
 
         modelBuilder.Entity<Vehicle>().HasIndex(v => new { v.SchoolId, v.RegistrationNo }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<TransportRoute>().HasIndex(r => new { r.SchoolId, r.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<Book>().HasIndex(b => new { b.SchoolId, b.Isbn }).IsUnique()
-            .HasFilter("[Isbn] IS NOT NULL AND [IsDeleted] = 0");
+            .HasFilter(Sql("[Isbn] IS NOT NULL AND [IsDeleted] = 0"));
         modelBuilder.Entity<InventoryItem>().HasIndex(i => new { i.SchoolId, i.Code }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<PurchaseOrder>().HasIndex(p => new { p.SchoolId, p.OrderNo }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
 
         modelBuilder.Entity<Examination>()
             .HasIndex(e => new { e.SchoolId, e.AcademicSessionId, e.Name }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<ExamSubject>()
             .HasIndex(es => new { es.ExaminationId, es.ClassId, es.SubjectId }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<StudentMark>()
             .HasIndex(m => new { m.ExaminationId, m.ExamSubjectId, m.StudentId }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
         modelBuilder.Entity<ReportCard>().HasIndex(r => new { r.ExaminationId, r.StudentId }).IsUnique()
-            .HasFilter("[IsDeleted] = 0");
+            .HasFilter(Sql("[IsDeleted] = 0"));
     }
 
     private void ApplyTenantFilters(ModelBuilder modelBuilder)
@@ -484,7 +538,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
         where TEntity : class, IAuditable
     {
         modelBuilder.Entity<TEntity>()
-            .HasQueryFilter(e => !e.IsDeleted && (CurrentSchoolId == null || e.SchoolId == CurrentSchoolId));
+            .HasQueryFilter(e => !e.IsDeleted && (IsSystemContext || e.SchoolId == CurrentSchoolId));
     }
 
     private sealed record PendingAudit(EntityEntry Entry, string Action, string? Before, string? After);

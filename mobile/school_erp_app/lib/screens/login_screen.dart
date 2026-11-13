@@ -14,8 +14,8 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _email = TextEditingController(text: 'principal@demo.edu');
-  final _password = TextEditingController(text: 'Passw0rd!');
+  final _email = TextEditingController();
+  final _password = TextEditingController();
   final _schoolCode = TextEditingController();
   late final TextEditingController _server =
       TextEditingController(text: context.read<AuthController>().serverUrl);
@@ -46,11 +46,6 @@ class _LoginScreenState extends State<LoginScreen> {
         SnackBar(content: Text(exception.message), backgroundColor: AppColors.red),
       );
     }
-  }
-
-  void _useDemo(String email) {
-    _email.text = email;
-    _password.text = 'Passw0rd!';
   }
 
   @override
@@ -218,32 +213,10 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        const Divider(),
-                        const SizedBox(height: 10),
                         const Text(
-                          'DEMO ACCOUNTS',
-                          style: TextStyle(
-                            color: AppColors.muted,
-                            fontSize: 10,
-                            letterSpacing: 1.4,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Wrap(
-                          spacing: 7,
-                          runSpacing: 7,
-                          children: [
-                            _DemoChip(label: 'Principal', onTap: () => _useDemo('principal@demo.edu')),
-                            _DemoChip(label: 'Teacher', onTap: () => _useDemo('teacher@demo.edu')),
-                            _DemoChip(label: 'Accounts', onTap: () => _useDemo('accounts@demo.edu')),
-                            _DemoChip(label: 'Parent', onTap: () => _useDemo('parent@demo.edu')),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        const Text(
-                          'Password for all demo accounts: Passw0rd!',
-                          style: TextStyle(color: AppColors.muted, fontSize: 11),
+                          'Forgot your password or school code? Contact your school administrator.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.muted, fontSize: 12),
                         ),
                       ],
                     ),
@@ -254,24 +227,6 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _DemoChip extends StatelessWidget {
-  const _DemoChip({required this.label, required this.onTap});
-
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return ActionChip(
-      label: Text(label, style: const TextStyle(fontSize: 12)),
-      onPressed: onTap,
-      backgroundColor: AppColors.tealSoft,
-      side: BorderSide.none,
-      labelStyle: const TextStyle(color: AppColors.navy, fontWeight: FontWeight.w600),
     );
   }
 }

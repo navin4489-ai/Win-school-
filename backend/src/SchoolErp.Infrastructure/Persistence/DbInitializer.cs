@@ -29,11 +29,129 @@ public sealed class DbInitializer
         _logger = logger;
     }
 
+    /// <summary>
+    /// Staff accounts created before user management linked employees have no employee
+    /// record, so they were missing from teacher lists. Creates and links one per account.
+    /// </summary>
+    private async Task LinkStaffEmployeesAsync(CancellationToken ct)
+    {
+        var nonStaff = new[] { RoleCodes.Parent, RoleCodes.Student, RoleCodes.SuperAdmin };
+        var orphans = await (
+            from u in _db.UserAccounts
+            join r in _db.Roles on u.RoleId equals r.Id
+            where u.EmployeeId == null && !nonStaff.Contains(r.Code)
+            select u).ToListAsync(ct);
+
+        foreach (var user in orphans)
+        {
+            var employee = await _db.Employees
+                .FirstOrDefaultAsync(e => e.SchoolId == user.SchoolId && e.Email == user.Email, ct);
+            if (employee is null)
+            {
+                var count = await _db.Employees.CountAsync(e => e.SchoolId == user.SchoolId, ct);
+                var parts = user.FullName.Trim().Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+                employee = new Employee
+                {
+                    SchoolId = user.SchoolId, BranchId = user.BranchId,
+                    EmployeeNo = $"EMP-{_clock.Today.Year}-{count + 1:0000}-{user.Id}",
+                    FirstName = parts.ElementAtOrDefault(0) ?? user.Email,
+                    LastName = parts.ElementAtOrDefault(1) ?? string.Empty,
+                    Email = user.Email, Phone = user.Phone, JoiningDate = _clock.Today
+                };
+                _db.Add(employee);
+                await _db.SaveChangesAsync(ct);
+            }
+
+            user.EmployeeId = employee.Id;
+        }
+
+        if (orphans.Count > 0)
+        {
+            await _db.SaveChangesAsync(ct);
+            _logger.LogInformation("Linked {Count} staff accounts to employee records.", orphans.Count);
+        }
+    }
+
+    /// <summary>
+    /// Production first start: creates the platform school and one super admin from
+    /// configuration, and nothing else. No demo data and no shared passwords.
+    /// Does nothing once any school exists.
+    /// </summary>
+    public async Task BootstrapPlatformAsync(string schoolCode, string schoolName, string adminEmail,
+        string adminPassword, CancellationToken ct = default)
+    {
+        if (await _db.Schools.AnyAsync(ct))
+        {
+            await LinkStaffEmployeesAsync(ct);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(adminEmail) || string.IsNullOrWhiteSpace(adminPassword) || adminPassword.Length < 12)
+            throw new InvalidOperationException(
+                "First start needs Bootstrap:AdminEmail and Bootstrap:AdminPassword (at least 12 characters).");
+
+        _logger.LogInformation("Creating platform school {Code} and super admin {Email}.", schoolCode, adminEmail);
+        var today = _clock.Today;
+        var startYear = today.Month >= 4 ? today.Year : today.Year - 1;
+
+        var school = new School { Code = schoolCode.Trim().ToUpperInvariant(), Name = schoolName.Trim(), IsActive = true };
+        _db.Add(school);
+        await _db.SaveChangesAsync(ct);
+
+        var branch = new Branch { SchoolId = school.Id, Name = "Head office", Code = "MAIN", IsMainBranch = true };
+        _db.Add(branch);
+        await _db.SaveChangesAsync(ct);
+
+        _db.Add(new AcademicSession
+        {
+            SchoolId = school.Id, BranchId = branch.Id, Name = $"{startYear}-{(startYear + 1) % 100:00}",
+            StartDate = new DateOnly(startYear, 4, 1), EndDate = new DateOnly(startYear + 1, 3, 31), IsCurrent = true
+        });
+
+        var permissions = await _db.Permissions.ToListAsync(ct);
+        foreach (var p in Permissions.All.Where(p => permissions.All(e => e.Code != p.Code)))
+        {
+            var entity = new Permission { Code = p.Code, Module = p.Module, Action = p.Action, Description = p.Description };
+            _db.Add(entity);
+            permissions.Add(entity);
+        }
+        await _db.SaveChangesAsync(ct);
+        var permissionIds = permissions.ToDictionary(p => p.Code, p => p.Id);
+
+        var roles = new Dictionary<string, Role>();
+        foreach (var (code, name) in new[] { (RoleCodes.SuperAdmin, "Super Admin") }.Concat(RoleTemplates.Roles))
+        {
+            var role = new Role
+            {
+                SchoolId = school.Id, BranchId = branch.Id, Code = code, Name = name,
+                Description = $"{name} role", IsSystem = true
+            };
+            _db.Add(role);
+            roles[code] = role;
+        }
+        await _db.SaveChangesAsync(ct);
+
+        foreach (var (code, role) in roles)
+        foreach (var permission in RoleTemplates.PermissionsFor(code))
+            if (permissionIds.TryGetValue(permission, out var id))
+                _db.Add(new RolePermission { RoleId = role.Id, PermissionId = id });
+
+        var email = adminEmail.Trim().ToLowerInvariant();
+        _db.Add(new UserAccount
+        {
+            SchoolId = school.Id, BranchId = branch.Id, Email = email, NormalizedEmail = email,
+            FullName = "Super Admin", PasswordHash = _hasher.Hash(adminPassword),
+            RoleId = roles[RoleCodes.SuperAdmin].Id, IsActive = true, EmailConfirmed = true
+        });
+        await _db.SaveChangesAsync(ct);
+    }
+
     public async Task InitializeAsync(CancellationToken ct = default)
     {
         if (await _db.Schools.AnyAsync(ct))
         {
             _logger.LogInformation("Demo data already present; skipping seed.");
+            await LinkStaffEmployeesAsync(ct);
             return;
         }
 
@@ -121,69 +239,12 @@ public sealed class DbInitializer
         await _db.SaveChangesAsync(ct);
         var permissionByCode = existingPermissions.ToDictionary(p => p.Code, p => p);
 
-        static string[] Codes(params string[] values) => values;
-        var rolePermissions = new Dictionary<string, string[]>
-        {
-            [RoleCodes.SuperAdmin] = permissionByCode.Keys.ToArray(),
-            [RoleCodes.SchoolOwner] = permissionByCode.Keys.ToArray(),
-            [RoleCodes.Principal] = Codes(Permissions.StudentsRead, Permissions.StudentsWrite,
-                Permissions.AdmissionsManage, Permissions.ParentsRead, Permissions.FeesRead,
-                Permissions.FeesRefund, Permissions.AttendanceRead, Permissions.ExamsRead,
-                Permissions.ExamsManage, Permissions.HomeworkManage, Permissions.HrRead,
-                Permissions.HrManage, Permissions.TransportManage, Permissions.LibraryManage,
-                Permissions.InventoryManage, Permissions.ReportsRead, Permissions.SettingsManage,
-                Permissions.UsersManage, Permissions.AuditRead, Permissions.LmsManage,
-                Permissions.CommunicationManage),
-            [RoleCodes.Administrator] = Codes(Permissions.StudentsRead, Permissions.StudentsWrite,
-                Permissions.AdmissionsManage, Permissions.ParentsRead, Permissions.FeesRead,
-                Permissions.FeesCollect, Permissions.AttendanceRead, Permissions.AttendanceMark,
-                Permissions.ExamsRead, Permissions.ExamsManage, Permissions.HrRead,
-                Permissions.TransportManage, Permissions.LibraryManage, Permissions.InventoryManage,
-                Permissions.ReportsRead, Permissions.SettingsManage, Permissions.UsersManage,
-                Permissions.CommunicationManage),
-            [RoleCodes.Accountant] = Codes(Permissions.StudentsRead, Permissions.ParentsRead,
-                Permissions.FeesRead, Permissions.FeesCollect, Permissions.FeesRefund,
-                Permissions.HrRead, Permissions.ReportsRead),
-            [RoleCodes.AdmissionManager] = Codes(Permissions.StudentsRead, Permissions.AdmissionsManage,
-                Permissions.ParentsRead, Permissions.FeesRead, Permissions.ReportsRead,
-                Permissions.CommunicationManage),
-            [RoleCodes.Teacher] = Codes(Permissions.StudentsRead, Permissions.ParentsRead,
-                Permissions.AttendanceRead, Permissions.AttendanceMark, Permissions.ExamsRead,
-                Permissions.ExamsManage, Permissions.HomeworkManage, Permissions.LmsManage),
-            [RoleCodes.ClassCoordinator] = Codes(Permissions.StudentsRead, Permissions.ParentsRead,
-                Permissions.AttendanceRead, Permissions.AttendanceMark, Permissions.ExamsRead,
-                Permissions.ExamsManage, Permissions.HomeworkManage, Permissions.LmsManage,
-                Permissions.ReportsRead, Permissions.CommunicationManage),
-            [RoleCodes.Student] = Codes(Permissions.AttendanceRead, Permissions.ExamsRead,
-                Permissions.FeesRead),
-            [RoleCodes.Parent] = Codes(Permissions.ParentsRead, Permissions.AttendanceRead,
-                Permissions.ExamsRead, Permissions.FeesRead),
-            [RoleCodes.HrManager] = Codes(Permissions.HrRead, Permissions.HrManage,
-                Permissions.ReportsRead, Permissions.UsersManage),
-            [RoleCodes.Librarian] = Codes(Permissions.LibraryManage, Permissions.StudentsRead),
-            [RoleCodes.TransportManager] = Codes(Permissions.TransportManage, Permissions.StudentsRead,
-                Permissions.ReportsRead),
-            [RoleCodes.TransportStaff] = Codes(Permissions.TransportManage, Permissions.StudentsRead)
-        };
+        var rolePermissions = new[] { RoleCodes.SuperAdmin }
+            .Concat(RoleTemplates.Roles.Select(r => r.Code))
+            .ToDictionary(code => code, code => RoleTemplates.PermissionsFor(code).ToArray());
 
         var roles = new Dictionary<string, Role>();
-        foreach (var (code, name) in new[]
-                 {
-                     (RoleCodes.SuperAdmin, "Super Admin"),
-                     (RoleCodes.SchoolOwner, "School Owner"),
-                     (RoleCodes.Principal, "Principal"),
-                     (RoleCodes.Administrator, "Administrator"),
-                     (RoleCodes.Accountant, "Accountant"),
-                     (RoleCodes.AdmissionManager, "Admission Manager"),
-                     (RoleCodes.Teacher, "Teacher"),
-                     (RoleCodes.ClassCoordinator, "Class Coordinator"),
-                     (RoleCodes.Student, "Student"),
-                     (RoleCodes.Parent, "Parent"),
-                     (RoleCodes.HrManager, "HR Manager"),
-                     (RoleCodes.Librarian, "Librarian"),
-                     (RoleCodes.TransportManager, "Transport Manager"),
-                     (RoleCodes.TransportStaff, "Transport Staff")
-                 })
+        foreach (var (code, name) in new[] { (RoleCodes.SuperAdmin, "Super Admin") }.Concat(RoleTemplates.Roles))
         {
             var role = new Role
             {
@@ -592,17 +653,21 @@ public sealed class DbInitializer
                 };
                 _db.Add(installment);
                 await _db.SaveChangesAsync(ct);
-                if (student.Id == aarav.Id && i < 2)
+
+                // Terms one and two are settled history. The third term stays open so the
+                // demo shows a realistic late-fee scenario instead of a year of arrears.
+                if (i < 2 || student.Id == ananya.Id)
                 {
                     receiptCounter++;
                     var receiptNo = $"RCPT-{sessionStartYear}-{receiptCounter:0000}";
                     _db.Add(new Payment
                     {
                         SchoolId = school.Id, BranchId = branch.Id, ReceiptNo = receiptNo,
-                        StudentId = aarav.Id, StudentFeeAssignmentId = assignment.Id,
+                        StudentId = student.Id, StudentFeeAssignmentId = assignment.Id,
                         FeeInstallmentId = installment.Id, Amount = installment.Amount,
-                        Mode = PaymentMode.Upi, Status = PaymentStatus.Success,
-                        PaidAtUtc = today.AddDays(-(10 - i)).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc), ReferenceNo = $"UPI-{receiptCounter:000000}",
+                        Mode = i == 0 ? PaymentMode.Upi : PaymentMode.Cash, Status = PaymentStatus.Success,
+                        PaidAtUtc = today.AddDays(-(30 - i * 10)).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc),
+                        ReferenceNo = $"UPI-{receiptCounter:000000}",
                         CollectedBy = accountant.Id, Remarks = "Demo seed payment"
                     });
                     installment.PaidAmount = installment.Amount;
@@ -623,21 +688,6 @@ public sealed class DbInitializer
                     });
                     installment.PaidAmount = 6000m;
                     installment.Status = InstallmentStatus.PartiallyPaid;
-                }
-
-                if (student.Id == ananya.Id && i == 0)
-                {
-                    receiptCounter++;
-                    _db.Add(new Payment
-                    {
-                        SchoolId = school.Id, BranchId = branch.Id, ReceiptNo = $"RCPT-{sessionStartYear}-{receiptCounter:0000}",
-                        StudentId = ananya.Id, StudentFeeAssignmentId = assignment.Id,
-                        FeeInstallmentId = installment.Id, Amount = installment.Amount,
-                        Mode = PaymentMode.Cash, Status = PaymentStatus.Success,
-                        PaidAtUtc = today.AddDays(-5).ToDateTime(new TimeOnly(10, 0), DateTimeKind.Utc), CollectedBy = accountant.Id
-                    });
-                    installment.PaidAmount = installment.Amount;
-                    installment.Status = InstallmentStatus.Paid;
                 }
 
                 await _db.SaveChangesAsync(ct);
@@ -839,6 +889,8 @@ public sealed class DbInitializer
             Latitude = 12.9609m, Longitude = 77.6387m, Order = 2
         };
         _db.AddRange(stop1, stop2);
+        await _db.SaveChangesAsync(ct);
+
         _db.Add(new TransportAllocation
         {
             SchoolId = school.Id, BranchId = branch.Id, StudentId = aarav.Id,

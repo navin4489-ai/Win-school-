@@ -257,6 +257,63 @@ public sealed class FeeService
 
     // ---------- Payments ----------
 
+    /// <summary>
+    /// Opens a payment session with the gateway. Parents may do this for their own
+    /// children; staff need the fees.collect permission.
+    /// </summary>
+    public async Task<PaymentOrderDto> CreatePaymentOrderAsync(CreatePaymentOrderRequest request,
+        CancellationToken ct = default)
+    {
+        await EnsureCanPayForStudentAsync(request.StudentId, ct);
+
+        var student = await _db.Students
+            .FirstOrDefaultAsync(s => s.Id == request.StudentId && s.SchoolId == SchoolId && !s.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Student");
+
+        var amount = Math.Round(request.Amount, 2, MidpointRounding.AwayFromZero);
+        var reference = $"FEE-{student.Id}-{student.AdmissionNo}";
+        var order = await _gateway.CreateOrderAsync(amount, reference, ct);
+
+        string? installmentName = null;
+        if (request.FeeInstallmentId is > 0)
+        {
+            installmentName = await _db.FeeInstallments
+                .Where(i => i.Id == request.FeeInstallmentId && i.SchoolId == SchoolId && !i.IsDeleted)
+                .Select(i => i.Name).FirstOrDefaultAsync(ct);
+        }
+
+        return new PaymentOrderDto
+        {
+            OrderId = order.OrderId,
+            PaymentId = order.PaymentId,
+            Amount = order.Amount,
+            Currency = order.Currency,
+            CheckoutUrl = order.CheckoutUrl,
+            ExpiresAtUtc = order.ExpiresAtUtc,
+            Gateway = _gateway.Name,
+            StudentId = student.Id,
+            StudentName = student.FullName,
+            InstallmentName = installmentName
+        };
+    }
+
+    /// <summary>Completes an online payment started with <see cref="CreatePaymentOrderAsync"/>.</summary>
+    public async Task<PaymentDto> RecordOnlinePaymentAsync(OnlinePaymentRequest request, CancellationToken ct = default)
+    {
+        await EnsureCanPayForStudentAsync(request.StudentId, ct);
+
+        return await RecordPaymentAsync(new RecordPaymentRequest
+        {
+            StudentId = request.StudentId,
+            FeeInstallmentId = request.FeeInstallmentId,
+            Amount = request.Amount,
+            Mode = PaymentMode.Online,
+            GatewayOrderId = request.GatewayOrderId,
+            GatewayPaymentId = request.GatewayPaymentId,
+            IdempotencyKey = request.IdempotencyKey
+        }, ct);
+    }
+
     public async Task<PaymentDto> RecordPaymentAsync(RecordPaymentRequest request, CancellationToken ct = default)
     {
         return await _uow.ExecuteInTransactionAsync(async token =>
@@ -294,7 +351,7 @@ public sealed class FeeService
                     join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
                     where a.StudentId == student.Id && a.IsActive && !a.IsDeleted && !i.IsDeleted &&
                           i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
-                          i.Amount > i.PaidAmount
+                          i.Amount + i.PenaltyAmount > i.PaidAmount
                     orderby i.DueDate
                     select i).FirstOrDefaultAsync(token)
                     ?? throw DomainException.Validation("The student has no outstanding installments.");
@@ -305,7 +362,8 @@ public sealed class FeeService
             if (installment.Status is InstallmentStatus.Paid or InstallmentStatus.Waived)
                 throw DomainException.Conflict("This installment is already settled.");
 
-            var balance = installment.Amount - installment.PaidAmount;
+            // The balance includes the late fee that the penalty job has accrued.
+            var balance = installment.TotalAmount - installment.PaidAmount;
             if (request.Amount > balance + 0.01m)
                 throw DomainException.Validation($"Payment exceeds the installment balance of {balance:0.00}.");
 
@@ -362,7 +420,7 @@ public sealed class FeeService
             _db.Add(payment);
 
             installment.PaidAmount = Math.Round(installment.PaidAmount + request.Amount, 2, MidpointRounding.AwayFromZero);
-            installment.Status = installment.PaidAmount >= installment.Amount
+            installment.Status = installment.PaidAmount >= installment.TotalAmount
                 ? InstallmentStatus.Paid
                 : InstallmentStatus.PartiallyPaid;
 
@@ -479,16 +537,23 @@ public sealed class FeeService
 
             var payment = await _db.Payments.FirstAsync(p => p.Id == refund.PaymentId, token);
 
-            var result = await _gateway.RefundAsync(payment.GatewayPaymentId ?? payment.ReferenceNo ?? payment.ReceiptNo,
-                refund.Amount, token);
-            if (!result.Success)
-                throw new DomainException("refund_failed", result.FailureReason ?? "The refund could not be processed.");
+            // A cash, cheque or bank-transfer payment never touched the gateway, so there
+            // is nothing to reverse there — the refund is simply recorded against the
+            // ledger. Only an online payment is settled with the provider.
+            if (payment.Mode == PaymentMode.Online)
+            {
+                var result = await _gateway.RefundAsync(payment.GatewayPaymentId ?? payment.ReferenceNo ?? payment.ReceiptNo,
+                    refund.Amount, token);
+                if (!result.Success)
+                    throw new DomainException("refund_failed", result.FailureReason ?? "The refund could not be processed.");
+
+                refund.ReferenceNo = result.GatewayPaymentId;
+            }
 
             refund.Status = RefundStatus.Processed;
             refund.ApprovedBy = _user.UserId;
             refund.ApprovedAtUtc = _clock.UtcNow;
             refund.ProcessedAtUtc = _clock.UtcNow;
-            refund.ReferenceNo = result.GatewayPaymentId;
 
             payment.RefundedAmount = Math.Round(payment.RefundedAmount + refund.Amount, 2, MidpointRounding.AwayFromZero);
             payment.Status = payment.RefundedAmount >= payment.Amount
@@ -561,7 +626,7 @@ public sealed class FeeService
             join klass in _db.Classes on s.ClassId equals klass.Id
             where i.SchoolId == SchoolId && !i.IsDeleted && !a.IsDeleted && a.IsActive &&
                   i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
-                  i.Amount > i.PaidAmount
+                  i.Amount + i.PenaltyAmount > i.PaidAmount
             select new { i, s, klass };
 
         if (classId is > 0) query = query.Where(x => x.s.ClassId == classId);
@@ -585,7 +650,7 @@ public sealed class FeeService
                 AdmissionNo = student.AdmissionNo,
                 ClassName = g.First().klass.Name,
                 GuardianPhone = phones.GetValueOrDefault(student.Id),
-                Outstanding = Math.Round(g.Sum(x => x.i.Amount - x.i.PaidAmount), 2),
+                Outstanding = Math.Round(g.Sum(x => x.i.Amount + x.i.PenaltyAmount - x.i.PaidAmount), 2),
                 OldestDueDate = g.Min(x => x.i.DueDate)
             };
         }).OrderByDescending(x => x.Outstanding).ToList();
@@ -600,7 +665,7 @@ public sealed class FeeService
             join s in _db.Students on a.StudentId equals s.Id
             where i.SchoolId == SchoolId && !i.IsDeleted && a.IsActive &&
                   i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
-                  i.Amount > i.PaidAmount && i.DueDate < _clock.Today
+                  i.Amount + i.PenaltyAmount > i.PaidAmount && i.DueDate < _clock.Today
             select new { i, s }).ToListAsync(ct);
 
         var studentIds = overdue.Select(x => x.s.Id).Distinct().ToList();
@@ -633,7 +698,7 @@ public sealed class FeeService
                 continue;
             }
 
-            var due = group.Sum(x => x.i.Amount - x.i.PaidAmount);
+            var due = group.Sum(x => x.i.Amount + x.i.PenaltyAmount - x.i.PaidAmount);
             _db.Add(new Notification
             {
                 SchoolId = SchoolId,
@@ -652,6 +717,57 @@ public sealed class FeeService
 
         if (queued > 0) await _uow.SaveChangesAsync(ct);
         return new ReminderResult { Queued = queued, Skipped = skipped };
+    }
+
+    // ---------- Documents ----------
+
+    /// <summary>Printable receipt for a single payment. Parents may fetch their own.</summary>
+    public async Task<FeeDocumentDto> GetReceiptAsync(int paymentId, CancellationToken ct = default)
+    {
+        var payment = await _db.Payments
+            .FirstOrDefaultAsync(p => p.Id == paymentId && p.SchoolId == SchoolId && !p.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Payment");
+
+        await EnsureCanReadStudentAsync(payment.StudentId, ct);
+
+        var school = await _db.Schools.FirstAsync(s => s.Id == SchoolId, ct);
+        var student = await _db.Students.FirstAsync(s => s.Id == payment.StudentId, ct);
+        var className = await _db.Classes.Where(c => c.Id == student.ClassId).Select(c => c.Name)
+            .FirstOrDefaultAsync(ct) ?? string.Empty;
+
+        var installmentName = "Fee payment";
+        decimal penaltyTotal = 0m;
+
+        if (payment.FeeInstallmentId is > 0)
+        {
+            var installment = await _db.FeeInstallments
+                .FirstOrDefaultAsync(i => i.Id == payment.FeeInstallmentId && !i.IsDeleted, ct);
+            if (installment is not null)
+            {
+                installmentName = installment.Name;
+                penaltyTotal = installment.PenaltyAmount;
+            }
+        }
+
+        return FeeDocumentBuilder.BuildReceipt(school, school.Code, student, className, payment,
+            installmentName, penaltyTotal);
+    }
+
+    /// <summary>Printable statement of everything billed and paid for a student.</summary>
+    public async Task<FeeDocumentDto> GetStatementAsync(int studentId, CancellationToken ct = default)
+    {
+        await EnsureCanReadStudentAsync(studentId, ct);
+
+        var student = await _db.Students
+            .FirstOrDefaultAsync(s => s.Id == studentId && s.SchoolId == SchoolId && !s.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Student");
+
+        var school = await _db.Schools.FirstAsync(s => s.Id == SchoolId, ct);
+        var ledger = await BuildLedgerAsync(student, ct);
+        var className = await _db.Classes.Where(c => c.Id == student.ClassId).Select(c => c.Name)
+            .FirstOrDefaultAsync(ct) ?? string.Empty;
+
+        return FeeDocumentBuilder.BuildStatement(school, student, className, ledger);
     }
 
     // ---------- Internals ----------
@@ -687,6 +803,42 @@ public sealed class FeeService
         }
     }
 
+    /// <summary>
+    /// A parent may only raise and complete payments for their own children. Staff need
+    /// fees.collect, which the API layer enforces before reaching this point.
+    /// </summary>
+    private async Task EnsureCanPayForStudentAsync(int studentId, CancellationToken ct)
+    {
+        if (_user.IsInRole(RoleCodes.Student))
+        {
+            if (_user.StudentId != studentId) throw DomainException.Forbidden("You can only pay your own fees.");
+            return;
+        }
+
+        if (_user.IsInRole(RoleCodes.Parent))
+        {
+            var guardianId = _user.GuardianId;
+            if (guardianId is null && _user.UserId is int userId)
+            {
+                guardianId = await _db.UserAccounts.IgnoreQueryFilters()
+                    .Where(u => u.Id == userId)
+                    .Select(u => u.GuardianId)
+                    .FirstOrDefaultAsync(ct);
+            }
+
+            var linked = guardianId is not null && await _db.StudentParents.AnyAsync(sp =>
+                sp.GuardianId == guardianId && sp.StudentId == studentId && !sp.IsDeleted, ct);
+
+            if (!linked) throw DomainException.Forbidden("You can only pay the fees of your own children.");
+            return;
+        }
+
+        // Everyone else needs the collect permission, which the endpoint policy already
+        // checks. This guard protects the service if it is ever called from elsewhere.
+        if (!_user.HasPermission(Permissions.FeesCollect))
+            throw DomainException.Forbidden("You are not allowed to collect fees.");
+    }
+
     private async Task<StudentLedgerDto> BuildLedgerAsync(Student student, CancellationToken ct)
     {
         var assignments = await _db.StudentFeeAssignments
@@ -716,14 +868,16 @@ public sealed class FeeService
             Discount = Math.Round(assignments.Sum(a => a.DiscountAmount), 2),
             TotalPaid = Math.Round(payments.Where(p => p.Status != PaymentStatus.Failed)
                 .Sum(p => p.Amount - p.RefundedAmount), 2),
-            Balance = Math.Round(installments.Sum(i => i.Amount - i.PaidAmount), 2),
+            Balance = Math.Round(installments.Sum(i => i.TotalAmount - i.PaidAmount), 2),
             Overdue = Math.Round(installments
                 .Where(i => i.DueDate < today && i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived)
-                .Sum(i => i.Amount - i.PaidAmount), 2),
+                .Sum(i => i.TotalAmount - i.PaidAmount), 2),
+            PenaltyTotal = Math.Round(installments.Sum(i => i.PenaltyAmount), 2),
             Installments = installments.Select(i => new InstallmentDto
             {
                 Id = i.Id, Name = i.Name, DueDate = i.DueDate, Amount = i.Amount,
-                PaidAmount = i.PaidAmount, Balance = i.Amount - i.PaidAmount, Status = i.Status,
+                PaidAmount = i.PaidAmount, PenaltyAmount = i.PenaltyAmount, TotalAmount = i.TotalAmount,
+                Balance = i.TotalAmount - i.PaidAmount, Status = i.Status,
                 IsOverdue = i.DueDate < today && i.Status != InstallmentStatus.Paid
             }).ToList(),
             Payments = payments.Select(p => new PaymentDto

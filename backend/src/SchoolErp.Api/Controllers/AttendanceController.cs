@@ -29,10 +29,20 @@ public sealed class AttendanceController : ControllerBase
         [FromQuery] DateOnly from, [FromQuery] DateOnly to, CancellationToken ct) =>
         Ok(await _attendance.GetStudentSummaryAsync(studentId, from, to, ct));
 
+    // The whole-school register is HR data. The service enforces the rule so that the
+    // principal (an administrator role) and the HR team can both read it, while a
+    // teacher only ever sees their own entry through attendance/staff/me.
     [HttpGet("staff")]
-    [Authorize(Policy = "permission:hr.read")]
+    [Authorize]
     public async Task<ActionResult<List<StaffAttendanceDto>>> Staff([FromQuery] DateOnly date,
         CancellationToken ct) => Ok(await _attendance.GetStaffAttendanceAsync(date, ct));
+
+    /// <summary>The signed-in employee's own register. Available to every member of staff.</summary>
+    [HttpGet("staff/me")]
+    [Authorize]
+    public async Task<ActionResult<StaffAttendanceRangeDto>> MyAttendance([FromQuery] DateOnly from,
+        [FromQuery] DateOnly to, CancellationToken ct) =>
+        Ok(await _attendance.GetMyAttendanceAsync(from, to, ct));
 
     [HttpPost("staff/check-in")]
     [Authorize(Policy = "permission:attendance.mark")]

@@ -54,6 +54,20 @@ expand/contract two-release pattern.
   waits for approval, swaps production.
 - Container option: `infra/Dockerfile.api`, `infra/Dockerfile.web`, `infra/docker-compose.yml`.
 
+## Background jobs
+
+Two hosted services run inside the API process and must be considered before scaling out.
+
+| Job | What it does | Multi-node behaviour |
+| --- | --- | --- |
+| `NotificationDispatcher` | Drains pending notifications to the SMS/email/WhatsApp providers | Safe on several nodes: the rows are claimed and marked sent, but two nodes can pick up the same row within one 15 second window. Move the claim into a `UPDATE … OUTPUT` or a queue before running more than one instance. |
+| `FeePenaltyService` | Accrues the daily late fee on unpaid installments | Safe on several nodes: the unique index on `(FeeInstallmentId, PenaltyDate)` makes a second node's insert fail and the day is charged exactly once. |
+| `NotificationHub` | Fans notifications out to the connected browsers over server-sent events | **Process local.** With more than one instance a notification created on node A is not pushed to a browser connected to node B. Replace the hub with Redis pub/sub or Azure SignalR Service before scaling out, or pin the portal to a single instance. |
+
+The long-lived notification stream is excluded from the global rate limiter
+(`[DisableRateLimiting]`), otherwise every open browser tab would hold a request permit for
+the lifetime of the connection.
+
 ## Health and monitoring
 
 | Signal | Alert |
@@ -63,6 +77,7 @@ expand/contract two-release pattern.
 | p95 latency > 2 s (10 min) | Sev 3 |
 | Failed logins > 50 / 5 min | Security review |
 | Notification outbox backlog > 100 | Check provider |
+| Late-fee rows per day far above the usual | Check the penalty policy and the `Fees:Penalty` settings |
 | SQL DTU/CPU > 80% (15 min) | Scale or optimise |
 | Backup failure | Sev 1 |
 
@@ -71,6 +86,11 @@ expand/contract two-release pattern.
 - [ ] DNS + TLS certificates; HSTS on.
 - [ ] CORS origins limited to portal domains.
 - [ ] Production JWT key, seed disabled, demo accounts removed.
+- [ ] `Fees:Penalty` policy reviewed with the school and set to the agreed daily amount and cap.
+- [ ] A real payment provider configured, or the dummy gateway explicitly accepted for the launch.
+- [ ] SMS / email / WhatsApp providers configured (`LogNotificationSender` only writes to the log).
+- [ ] `NotificationHub` replaced with a shared broker if more than one API instance is planned.
+- [ ] Mobile camera and location permissions declared in the Android manifest and the iOS plist.
 - [ ] Backups configured and a restore has been rehearsed.
 - [ ] Smoke test: login, admission, fee payment, attendance, report export.
 - [ ] UAT sign-off recorded (`docs/uat-checklist.md`).

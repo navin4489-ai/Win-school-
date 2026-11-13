@@ -98,7 +98,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               const Text('Unread', style: TextStyle(fontSize: 11, color: AppColors.muted)),
               Switch(
                 value: _unreadOnly,
-                activeColor: AppColors.teal,
+                activeThumbColor: AppColors.teal,
                 onChanged: (value) {
                   setState(() => _unreadOnly = value);
                   _load();

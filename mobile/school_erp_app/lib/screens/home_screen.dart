@@ -7,6 +7,7 @@ import '../core/models.dart';
 import '../core/theme.dart';
 import 'attendance_screen.dart';
 import 'fees_screen.dart';
+import 'my_attendance_screen.dart';
 import 'notifications_screen.dart';
 import 'results_screen.dart';
 import 'students_screen.dart';
@@ -168,6 +169,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: () => _open(const AttendanceScreen()),
               ),
               _DrawerTile(
+                icon: Icons.schedule_outlined,
+                label: 'My attendance',
+                enabled: auth.can('attendance.mark'),
+                onTap: () => _open(const MyAttendanceScreen()),
+              ),
+              _DrawerTile(
                 icon: Icons.payments_outlined,
                 label: 'Fees',
                 enabled: auth.can('fees.read'),
@@ -261,6 +268,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       icon: Icons.fact_check_outlined,
                       label: 'Attendance',
                       onTap: () => _open(const AttendanceScreen()),
+                    ),
+                  if (auth.can('attendance.mark'))
+                    _QuickTile(
+                      icon: Icons.schedule_outlined,
+                      label: 'Check in',
+                      onTap: () => _open(const MyAttendanceScreen()),
                     ),
                   if (auth.can('fees.read'))
                     _QuickTile(
