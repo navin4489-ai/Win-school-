@@ -43,6 +43,27 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
         </section>
 
         <section class="card">
+          <div class="card-header"><h3>Add section</h3></div>
+          <div class="card-body">
+            @if (!classes().length) {
+              <div class="empty">Add a class first, then add its sections here.</div>
+            } @else {
+              <form class="form-grid" [formGroup]="sectionForm" (ngSubmit)="saveSection()">
+                <label class="field"><span>Class *</span>
+                  <select formControlName="classId">
+                    <option value="">Select class</option>
+                    @for (c of classes(); track c.id) { <option [value]="c.id">{{ c.name }}</option> }
+                  </select>
+                </label>
+                <label class="field"><span>Section name *</span><input formControlName="name" placeholder="A" /></label>
+                <label class="field"><span>Capacity</span><input formControlName="capacity" type="number" /></label>
+                <div class="full"><button class="btn btn-primary" type="submit" [disabled]="sectionForm.invalid">Add section</button></div>
+              </form>
+            }
+          </div>
+        </section>
+
+        <section class="card">
           <div class="card-header"><h3>Add subject</h3></div>
           <div class="card-body">
             <form class="form-grid" [formGroup]="subjectForm" (ngSubmit)="saveSubject()">
@@ -110,6 +131,9 @@ export class ClassesComponent implements OnInit {
   readonly subjectForm = this.fb.nonNullable.group({
     name: ['', Validators.required], code: ['', Validators.required], isElective: [false]
   });
+  readonly sectionForm = this.fb.nonNullable.group({
+    classId: ['', Validators.required], name: ['', Validators.required], capacity: [40]
+  });
 
   ngOnInit(): void {
     this.load();
@@ -157,12 +181,20 @@ export class ClassesComponent implements OnInit {
     this.classForm.reset({ name: '', code: '', stream: '', displayOrder: 0 });
   }
 
-  addSection(c: ClassRoom, name: string, capacity: number): void {
+  addSection(c: ClassRoom, name: string, capacity: number, after?: () => void): void {
     if (!name.trim()) return;
     this.api.post(`admin/classes/${c.id}/sections`, { name: name.trim(), capacity: capacity || 40 }).subscribe({
-      next: () => { this.ok(`Section ${name.trim()} added to ${c.name}.`); this.loadSections(c.id); },
+      next: () => { this.ok(`Section ${name.trim()} added to ${c.name}.`); this.loadSections(c.id); after?.(); },
       error: r => this.fail(r)
     });
+  }
+
+  saveSection(): void {
+    const raw = this.sectionForm.getRawValue();
+    const c = this.classes().find(x => x.id === Number(raw.classId));
+    if (!c) return;
+    this.addSection(c, raw.name, Number(raw.capacity),
+      () => this.sectionForm.reset({ classId: raw.classId, name: '', capacity: 40 }));
   }
 
   saveSubject(): void {
