@@ -16,16 +16,11 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
-  final _schoolCode = TextEditingController();
-  late final TextEditingController _server =
-      TextEditingController(text: context.read<AuthController>().serverUrl);
 
   @override
   void dispose() {
     _email.dispose();
     _password.dispose();
-    _schoolCode.dispose();
-    _server.dispose();
     super.dispose();
   }
 
@@ -34,11 +29,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
     final auth = context.read<AuthController>();
     try {
-      await auth.setServerUrl(_server.text);
       await auth.signIn(
         email: _email.text,
         password: _password.text,
-        schoolCode: _schoolCode.text,
       );
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -151,7 +144,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 4),
                         const Text(
-                          'Use your school account.',
+                          'Staff: email. Parents: child\'s admission number.',
                           style: TextStyle(color: AppColors.muted, fontSize: 13),
                         ),
                         const SizedBox(height: 18),
@@ -159,13 +152,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           controller: _email,
                           keyboardType: TextInputType.emailAddress,
                           autocorrect: false,
-                          decoration: const InputDecoration(labelText: 'Email'),
-                          validator: (value) {
-                            final email = value?.trim() ?? '';
-                            if (email.isEmpty) return 'Email is required';
-                            if (!email.contains('@')) return 'Enter a valid email';
-                            return null;
-                          },
+                          decoration: const InputDecoration(labelText: 'Email or admission number'),
+                          validator: (value) =>
+                              (value?.trim() ?? '').isEmpty ? 'Email or admission number is required' : null,
                         ),
                         const SizedBox(height: 12),
                         TextFormField(
@@ -174,26 +163,6 @@ class _LoginScreenState extends State<LoginScreen> {
                           decoration: const InputDecoration(labelText: 'Password'),
                           validator: (value) =>
                               (value == null || value.isEmpty) ? 'Password is required' : null,
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _schoolCode,
-                          textCapitalization: TextCapitalization.characters,
-                          decoration: const InputDecoration(
-                            labelText: 'School code (optional)',
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _server,
-                          keyboardType: TextInputType.url,
-                          autocorrect: false,
-                          decoration: const InputDecoration(
-                            labelText: 'Server address',
-                            helperText: 'e.g. https://erp.yourschool.in or 192.168.1.20:5080',
-                          ),
-                          validator: (value) =>
-                              (value == null || value.trim().isEmpty) ? 'Server address is required' : null,
                         ),
                         const SizedBox(height: 18),
                         SizedBox(
@@ -214,7 +183,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 16),
                         const Text(
-                          'Forgot your password or school code? Contact your school administrator.',
+                          'Forgot your password? Contact your school administrator.',
                           textAlign: TextAlign.center,
                           style: TextStyle(color: AppColors.muted, fontSize: 12),
                         ),
