@@ -11,7 +11,7 @@ databases:
     user: schoolerp
     region: singapore
     # Free Render databases are deleted after 30 days. Keep a paid plan for real data.
-    plan: basic-256mb
+    plan: free
 
 services:
   - type: web
@@ -83,20 +83,3 @@ services:
         source: /*
         destination: /index.html
 
-  - type: cron
-    name: school-erp-jobs
-    runtime: docker
-    region: singapore
-    plan: starter
-    dockerfilePath: ./infra/cron.Dockerfile
-    dockerContext: ./infra
-    # Every hour. Late fees are charged at most once per day; notifications go out hourly.
-    schedule: "5 * * * *"
-    envVars:
-      - key: API_URL
-        value: https://school-erp-api.onrender.com
-      - key: JOB_SECRET
-        fromService:
-          name: school-erp-api
-          type: web
-          envVarKey: Jobs__Secret
