@@ -11,7 +11,7 @@ import { AuthService } from '../../core/auth.service';
     <div class="login">
       <section class="hero">
         <div class="hero-top">
-          <div class="logo">W</div>
+          <img class="logo" src="logo.svg" alt="Wintech" />
           <div>
             <strong>Wintech</strong>
             <div class="logo-sub">School ERP</div>
@@ -42,7 +42,7 @@ import { AuthService } from '../../core/auth.service';
 
       <section class="panel">
         <div class="card-login">
-          <div class="mobile-brand"><div class="logo">W</div><strong>Wintech School ERP</strong></div>
+          <div class="mobile-brand"><img class="logo" src="logo.svg" alt="Wintech" /><strong>Wintech School ERP</strong></div>
 
           <h2>Welcome back</h2>
           <p class="lead">Staff: use your email. Parents: use your child's admission number.</p>
@@ -100,8 +100,7 @@ import { AuthService } from '../../core/auth.service';
     .hero { position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between;
       padding: 40px 56px; color: #fff; background: linear-gradient(145deg, #0b1f3a 0%, #12345c 55%, #0f8a86 130%); }
     .hero-top { display: flex; align-items: center; gap: 12px; position: relative; z-index: 1; }
-    .logo { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; font-weight: 800; font-size: 20px;
-      background: #f3b33d; color: #0b1f3a; box-shadow: 0 6px 18px rgba(243, 179, 61, .35); }
+    .logo { width: 42px; height: 42px; border-radius: 12px; display: block; box-shadow: 0 6px 18px rgba(0, 0, 0, .25); }
     .logo-sub { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: #9fb7cb; }
     .hero-copy { position: relative; z-index: 1; max-width: 520px; }
     .hero-copy h1 { font-size: 40px; line-height: 1.15; letter-spacing: -.02em; margin: 0 0 16px; }

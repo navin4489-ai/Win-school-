@@ -52,17 +52,9 @@ class _SplashScreen extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: AppColors.gold,
-              child: Text(
-                'W',
-                style: TextStyle(
-                  color: AppColors.navy,
-                  fontSize: 26,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
+            ClipRRect(
+              borderRadius: BorderRadius.all(Radius.circular(16)),
+              child: Image(image: AssetImage('assets/logo.png'), width: 64, height: 64),
             ),
             SizedBox(height: 16),
             Text(

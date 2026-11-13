@@ -16,7 +16,7 @@ interface NavSection { label: string; items: NavItem[]; }
     <div class="shell">
       <aside class="sidebar" [class.open]="menuOpen()">
         <div class="brand">
-          <div class="brand-mark">W</div>
+          <img class="brand-mark" src="logo.svg" alt="Wintech" />
           <div>
             <strong>Wintech</strong>
             <div class="brand-sub">School ERP</div>
@@ -145,7 +145,7 @@ interface NavSection { label: string; items: NavItem[]; }
     .shell { min-height: 100vh; display: grid; grid-template-columns: 250px minmax(0, 1fr); }
     .sidebar { background: linear-gradient(180deg, var(--navy-900), var(--navy-800)); color: #eaf2f9; display: flex; flex-direction: column; position: sticky; top: 0; height: 100vh; overflow-y: auto; z-index: 30; }
     .brand { display: flex; align-items: center; gap: 11px; padding: 20px 18px 14px; }
-    .brand-mark { width: 38px; height: 38px; border-radius: 11px; background: var(--gold-500); color: var(--navy-900); display: grid; place-items: center; font-weight: 800; font-size: 18px; }
+    .brand-mark { width: 38px; height: 38px; border-radius: 10px; display: block; }
     .brand strong { font-size: 16px; letter-spacing: -0.01em; }
     .brand-sub { font-size: 11px; color: #9fb7cb; letter-spacing: 0.14em; text-transform: uppercase; }
     .school { margin: 4px 14px 10px; padding: 10px 12px; border: 1px solid rgba(255,255,255,0.08); background: rgba(255,255,255,0.04); border-radius: 10px; }
