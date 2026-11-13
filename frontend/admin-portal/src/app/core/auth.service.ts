@@ -19,9 +19,9 @@ export class AuthService {
   readonly isLoggedIn = computed(() => !!this.accessToken());
   readonly permissions = computed(() => this.user()?.permissions ?? []);
 
-  login(email: string, password: string, schoolCode: string): Observable<AuthResponse> {
+  login(email: string, password: string): Observable<AuthResponse> {
     return this.http
-      .post<AuthResponse>('/api/auth/login', { email, password, schoolCode: schoolCode || null })
+      .post<AuthResponse>('/api/auth/login', { email, password })
       .pipe(tap(response => this.persist(response)));
   }
 

@@ -3,8 +3,6 @@ import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
 
-const SCHOOL_CODE_KEY = 'school_erp_last_school_code';
-
 @Component({
   selector: 'app-login',
   standalone: true,
@@ -47,23 +45,13 @@ const SCHOOL_CODE_KEY = 'school_erp_last_school_code';
           <div class="mobile-brand"><div class="logo">W</div><strong>Wintech School ERP</strong></div>
 
           <h2>Welcome back</h2>
-          <p class="lead">Sign in with your school code and account.</p>
+          <p class="lead">Sign in with your email and password.</p>
 
           @if (error()) {
             <div class="alert" role="alert">{{ error() }}</div>
           }
 
           <form [formGroup]="form" (ngSubmit)="submit()" novalidate>
-            <label class="input-group">
-              <span class="label">School code</span>
-              <div class="input-wrap">
-                <span class="icon">⌂</span>
-                <input formControlName="schoolCode" placeholder="e.g. DEMO" autocomplete="organization"
-                       (input)="upperCode()" />
-              </div>
-              <span class="hint">Given to you by your school. Leave empty if you use only one school.</span>
-            </label>
-
             <label class="input-group">
               <span class="label">Email</span>
               <div class="input-wrap" [class.invalid]="touchedInvalid('email')">
@@ -91,11 +79,11 @@ const SCHOOL_CODE_KEY = 'school_erp_last_school_code';
           </form>
 
           <div class="help">
-            <button type="button" class="link" (click)="helpOpen.set(!helpOpen())">Forgot password or school code?</button>
+            <button type="button" class="link" (click)="helpOpen.set(!helpOpen())">Forgot password?</button>
             @if (helpOpen()) {
               <p class="help-text">
                 Contact your school administrator. They can reset your password from
-                <strong>Users &amp; roles</strong> and tell you your school code.
+                <strong>Users &amp; roles</strong>.
               </p>
             }
           </div>
@@ -201,7 +189,6 @@ export class LoginComponent {
   ];
 
   readonly form = this.fb.nonNullable.group({
-    schoolCode: [localStorage.getItem(SCHOOL_CODE_KEY) ?? ''],
     email: ['', [Validators.required, Validators.email]],
     password: ['', [Validators.required]]
   });
@@ -211,22 +198,16 @@ export class LoginComponent {
     return control.touched && control.invalid;
   }
 
-  upperCode(): void {
-    const control = this.form.controls.schoolCode;
-    control.setValue(control.value.toUpperCase(), { emitEvent: false });
-  }
-
   submit(): void {
     if (this.form.invalid || this.loading()) return;
 
     this.loading.set(true);
     this.error.set(null);
-    const { email, password, schoolCode } = this.form.getRawValue();
+    const { email, password } = this.form.getRawValue();
 
-    this.auth.login(email, password, schoolCode.trim()).subscribe({
+    this.auth.login(email, password).subscribe({
       next: () => {
         this.loading.set(false);
-        if (schoolCode.trim()) localStorage.setItem(SCHOOL_CODE_KEY, schoolCode.trim());
         void this.router.navigate(['/dashboard']);
       },
       error: (response: unknown) => {
@@ -249,5 +230,5 @@ function readError(response: unknown): string {
     if (problem.detail) return problem.detail;
     if (problem.title) return problem.title;
   }
-  return 'Sign-in failed. Check your school code, email and password.';
+  return 'Sign-in failed. Check your email and password.';
 }

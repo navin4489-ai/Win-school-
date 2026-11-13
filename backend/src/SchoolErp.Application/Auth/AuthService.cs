@@ -46,16 +46,26 @@ public sealed class AuthService
             query = query.Where(u => u.SchoolId == schoolId);
         }
 
-        var candidates = await query.OrderBy(u => u.Id).Take(2).ToListAsync(ct);
+        var candidates = await query.OrderBy(u => u.Id).ToListAsync(ct);
         var now = _clock.UtcNow;
 
-        // The same email may legitimately exist in two schools. Never guess which one the
-        // person meant: that would sign them into the wrong school's data.
+        // The same email may exist in several schools. The school is resolved from the
+        // account whose password matches; if that is still ambiguous, never guess.
         if (candidates.Count > 1)
         {
-            await AuditLoginAsync(null, normalized, false, "Email exists in several schools", ct);
-            throw new DomainException("school_code_required",
-                "This email is registered with more than one school. Enter your school code to sign in.", 400);
+            var matches = candidates.Where(u => _passwords.Verify(u.PasswordHash, request.Password)).ToList();
+            if (matches.Count == 0)
+            {
+                await AuditLoginAsync(null, normalized, false, "Invalid password", ct);
+                throw DomainException.Unauthorized();
+            }
+            if (matches.Count > 1)
+            {
+                await AuditLoginAsync(null, normalized, false, "Email and password match several schools", ct);
+                throw new DomainException("school_ambiguous",
+                    "This account exists in more than one school. Contact your administrator.", 400);
+            }
+            candidates = matches;
         }
 
         var user = candidates.FirstOrDefault();
