@@ -1,0 +1,102 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Deploys the school ERP as four resources:
+#   school-erp-db    PostgreSQL database
+#   school-erp-api   ASP.NET Core API (Docker)
+#   school-erp-web   Angular portal (static site) served at school.wintechinov.com
+#   school-erp-jobs  Hourly cron job that wakes the API and runs late fees + notifications
+
+databases:
+  - name: school-erp-db
+    databaseName: schoolerp
+    user: schoolerp
+    region: singapore
+    # Free Render databases are deleted after 30 days. Keep a paid plan for real data.
+    plan: basic-256mb
+
+services:
+  - type: web
+    name: school-erp-api
+    runtime: docker
+    region: singapore
+    plan: free
+    dockerfilePath: ./infra/api.Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: ASPNETCORE_ENVIRONMENT
+        value: Production
+      - key: Database__Provider
+        value: Postgres
+      - key: ConnectionStrings__Default
+        fromDatabase:
+          name: school-erp-db
+          property: connectionString
+      - key: Jwt__SigningKey
+        generateValue: true
+      - key: Jobs__Secret
+        generateValue: true
+      - key: Cors__AllowedOrigins__0
+        value: https://school.wintechinov.com
+      - key: RateLimiting__PermitsPerMinute
+        value: "1200"
+      # First start only: the platform super admin. Set these in the dashboard;
+      # they are never committed. The password must be at least 12 characters.
+      - key: Bootstrap__SchoolCode
+        value: WINTECH
+      - key: Bootstrap__SchoolName
+        value: Wintech Innovations
+      - key: Bootstrap__AdminEmail
+        sync: false
+      - key: Bootstrap__AdminPassword
+        sync: false
+
+  - type: web
+    name: school-erp-web
+    runtime: static
+    rootDir: frontend/admin-portal
+    buildCommand: npm ci && npm run build
+    staticPublishPath: dist/admin-portal/browser
+    pullRequestPreviewsEnabled: false
+    domains:
+      - school.wintechinov.com
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: Referrer-Policy
+        value: strict-origin-when-cross-origin
+    routes:
+      # Same-origin API: the portal calls /api and /files, forwarded to the API service.
+      - type: rewrite
+        source: /api/*
+        destination: https://school-erp-api.onrender.com/api/*
+      - type: rewrite
+        source: /files/*
+        destination: https://school-erp-api.onrender.com/files/*
+      # Angular client-side routing.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: cron
+    name: school-erp-jobs
+    runtime: docker
+    region: singapore
+    plan: starter
+    dockerfilePath: ./infra/cron.Dockerfile
+    dockerContext: ./infra
+    # Every hour. Late fees are charged at most once per day; notifications go out hourly.
+    schedule: "5 * * * *"
+    envVars:
+      - key: API_URL
+        value: https://school-erp-api.onrender.com
+      - key: JOB_SECRET
+        fromService:
+          name: school-erp-api
+          type: web
+          envVarKey: Jobs__Secret
