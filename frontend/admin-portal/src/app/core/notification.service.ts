@@ -2,6 +2,13 @@ import { Injectable, NgZone, inject, signal } from '@angular/core';
 import { NotificationItem } from './models';
 
 /**
+ * The stream talks to the API service directly: the static site's /api rewrite
+ * buffers server-sent events, so a stream opened through it never delivers a
+ * frame. Everything else keeps using the same-origin /api paths.
+ */
+const STREAM_URL = 'https://school-erp-api-3j9e.onrender.com/api/notifications/stream';
+
+/**
  * Live notification centre.
  *
  * Subscribes to the server-sent-events stream so a message sent by the principal
@@ -77,7 +84,7 @@ export class NotificationService {
     const controller = new AbortController();
     this.controller = controller;
 
-    const response = await fetch('/api/notifications/stream', {
+    const response = await fetch(STREAM_URL, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
       signal: controller.signal
     });
@@ -120,7 +127,7 @@ export class NotificationService {
     this.controller = controller;
 
     try {
-      const response = await fetch('/api/notifications/stream', {
+      const response = await fetch(STREAM_URL, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'text/event-stream' },
         signal: controller.signal
       });
