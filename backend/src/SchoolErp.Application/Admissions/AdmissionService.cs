@@ -37,13 +37,15 @@ public sealed class AdmissionService
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term = query.Search.Trim();
-            source = source.Where(x =>
-                x.a.ApplicationNo.Contains(term) ||
-                x.a.FirstName.Contains(term) ||
-                x.a.LastName.Contains(term) ||
-                x.a.GuardianPhone.Contains(term) ||
-                x.a.GuardianName.Contains(term));
+            foreach (var word in query.Search.Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(5))
+            {
+                source = source.Where(x =>
+                    x.a.ApplicationNo.ToLower().Contains(word) ||
+                    x.a.FirstName.ToLower().Contains(word) ||
+                    x.a.LastName.ToLower().Contains(word) ||
+                    x.a.GuardianPhone.Contains(word) ||
+                    x.a.GuardianName.ToLower().Contains(word));
+            }
         }
 
         if (query.Status is not null) source = source.Where(x => x.a.Status == query.Status);

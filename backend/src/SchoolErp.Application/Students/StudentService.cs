@@ -51,12 +51,16 @@ public sealed class StudentService
 
         if (!string.IsNullOrWhiteSpace(query.Search))
         {
-            var term = query.Search.Trim();
-            source = source.Where(x =>
-                x.s.AdmissionNo.Contains(term) ||
-                x.s.FirstName.Contains(term) ||
-                x.s.LastName.Contains(term) ||
-                (x.s.Phone != null && x.s.Phone.Contains(term)));
+            // Case-insensitive; every word must match one of the fields, so "ajay kumar",
+            // "Kumar Ajay" and "AJAY" all find Ajay Kumar.
+            foreach (var word in query.Search.Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(5))
+            {
+                source = source.Where(x =>
+                    x.s.AdmissionNo.ToLower().Contains(word) ||
+                    x.s.FirstName.ToLower().Contains(word) ||
+                    x.s.LastName.ToLower().Contains(word) ||
+                    (x.s.Phone != null && x.s.Phone.Contains(word)));
+            }
         }
 
         if (query.ClassId is > 0) source = source.Where(x => x.s.ClassId == query.ClassId);

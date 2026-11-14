@@ -42,9 +42,11 @@ public sealed class OperationsService
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
-            query = query.Where(x => x.e.FirstName.Contains(term) || x.e.LastName.Contains(term) ||
-                                     x.e.EmployeeNo.Contains(term) || x.e.Email.Contains(term));
+            foreach (var word in search.Trim().ToLower().Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(5))
+            {
+                query = query.Where(x => x.e.FirstName.ToLower().Contains(word) || x.e.LastName.ToLower().Contains(word) ||
+                                         x.e.EmployeeNo.ToLower().Contains(word) || x.e.Email.ToLower().Contains(word));
+            }
         }
 
         return await query.OrderBy(x => x.e.FirstName)
@@ -441,9 +443,9 @@ public sealed class OperationsService
         var query = _db.Books.Where(b => b.SchoolId == SchoolId && !b.IsDeleted);
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
-            query = query.Where(b => b.Title.Contains(term) || (b.Isbn != null && b.Isbn.Contains(term)) ||
-                                     (b.Author != null && b.Author.Contains(term)));
+            var term = search.Trim().ToLower();
+            query = query.Where(b => b.Title.ToLower().Contains(term) || (b.Isbn != null && b.Isbn.ToLower().Contains(term)) ||
+                                     (b.Author != null && b.Author.ToLower().Contains(term)));
         }
 
         return await query.OrderBy(b => b.Title)
@@ -575,8 +577,8 @@ public sealed class OperationsService
         var query = _db.InventoryItems.Where(i => i.SchoolId == SchoolId && !i.IsDeleted);
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
-            query = query.Where(i => i.Name.Contains(term) || i.Code.Contains(term));
+            var term = search.Trim().ToLower();
+            query = query.Where(i => i.Name.ToLower().Contains(term) || i.Code.ToLower().Contains(term));
         }
 
         return await query.OrderBy(i => i.Name)
