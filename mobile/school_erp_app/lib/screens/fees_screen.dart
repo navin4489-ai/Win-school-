@@ -43,6 +43,7 @@ class FeesScreen extends StatefulWidget {
 
 class _FeesScreenState extends State<FeesScreen> {
   final _studentId = TextEditingController();
+  final _search = TextEditingController();
   Ledger? _ledger;
   List<Child> _children = [];
   bool _loading = false;
@@ -56,6 +57,7 @@ class _FeesScreenState extends State<FeesScreen> {
   @override
   void dispose() {
     _studentId.dispose();
+    _search.dispose();
     super.dispose();
   }
 
@@ -109,10 +111,65 @@ class _FeesScreenState extends State<FeesScreen> {
     }
   }
 
+  Future<void> _findStudent() async {
+    final term = _search.text.trim();
+    if (term.isEmpty) {
+      setState(() => _error = 'Enter an admission number or a student name.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    List<Map<String, dynamic>> matches = const [];
+    try {
+      final response = await context.read<AuthController>().api.get('students', query: {'search': term, 'pageSize': '20'});
+      final items = (response is Map<String, dynamic> ? response['items'] : null);
+      matches = items is List ? items.whereType<Map<String, dynamic>>().toList() : const [];
+    } on ApiException catch (exception) {
+      if (mounted) setState(() => _error = exception.message);
+    } catch (_) {
+      if (mounted) setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+    if (!mounted || _error != null) return;
+
+    if (matches.isEmpty) {
+      setState(() => _error = 'No student found for "$term".');
+      return;
+    }
+    Map<String, dynamic>? chosen = matches.length == 1 ? matches.first : null;
+    chosen ??= await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
+              child: Text('Select a student', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+            ),
+            for (final s in matches)
+              ListTile(
+                title: Text('${s['fullName'] ?? ''}'),
+                subtitle: Text('${s['admissionNo'] ?? ''} · ${s['className'] ?? ''} ${s['sectionName'] ?? ''}'),
+                onTap: () => Navigator.of(sheetContext).pop(s),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    _studentId.text = '${chosen['id']}';
+    await _loadLedger();
+  }
+
   Future<void> _loadLedger() async {
     final id = int.tryParse(_studentId.text.trim());
     if (id == null || id <= 0) {
-      setState(() => _error = 'Enter a valid student ID.');
+      setState(() => _error = 'Find a student first.');
       return;
     }
 
@@ -346,16 +403,19 @@ class _FeesScreenState extends State<FeesScreen> {
                       children: [
                         Expanded(
                           child: TextField(
-                            controller: _studentId,
-                            keyboardType: TextInputType.number,
-                            decoration: const InputDecoration(labelText: 'Student ID'),
-                            onSubmitted: (_) => _loadLedger(),
+                            controller: _search,
+                            textInputAction: TextInputAction.search,
+                            decoration: const InputDecoration(
+                              labelText: 'Admission no. or student name',
+                              prefixIcon: Icon(Icons.search, size: 20),
+                            ),
+                            onSubmitted: (_) => _findStudent(),
                           ),
                         ),
                         const SizedBox(width: 10),
                         FilledButton(
-                          onPressed: _loading ? null : _loadLedger,
-                          child: const Text('Load'),
+                          onPressed: _loading ? null : _findStudent,
+                          child: const Text('Find'),
                         ),
                       ],
                     ),
@@ -389,7 +449,7 @@ class _FeesScreenState extends State<FeesScreen> {
                             : _children.isEmpty
                                 ? 'There are no fee records to show.'
                                 : 'Select a child to view the fee ledger.')
-                        : 'Enter a student ID to view the fee ledger.',
+                        : 'Search by admission number or name to view the fee ledger.',
                     style: const TextStyle(color: AppColors.muted),
                   ),
                 ),

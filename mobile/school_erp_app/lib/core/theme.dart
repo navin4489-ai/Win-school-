@@ -33,6 +33,8 @@ ThemeData buildTheme() {
       backgroundColor: Colors.white,
       foregroundColor: AppColors.navy,
       elevation: 0,
+      scrolledUnderElevation: 0.5,
+      surfaceTintColor: Colors.transparent,
       centerTitle: false,
       titleTextStyle: TextStyle(
         color: AppColors.navy,
@@ -75,6 +77,33 @@ ThemeData buildTheme() {
       ),
     ),
     dividerTheme: const DividerThemeData(color: AppColors.line, thickness: 1),
+    cardTheme: CardThemeData(
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: const BorderSide(color: AppColors.line),
+      ),
+    ),
+    chipTheme: ChipThemeData(
+      backgroundColor: Colors.white,
+      selectedColor: AppColors.tealSoft,
+      side: const BorderSide(color: AppColors.line),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
+      labelStyle: const TextStyle(color: AppColors.ink, fontWeight: FontWeight.w600, fontSize: 13),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: Colors.white,
+      surfaceTintColor: Colors.transparent,
+      showDragHandle: true,
+    ),
+    drawerTheme: const DrawerThemeData(backgroundColor: Colors.white, surfaceTintColor: Colors.transparent),
+    listTileTheme: const ListTileThemeData(iconColor: AppColors.navy),
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(foregroundColor: AppColors.teal, textStyle: const TextStyle(fontWeight: FontWeight.w600)),
+    ),
     snackBarTheme: SnackBarThemeData(
       behavior: SnackBarBehavior.floating,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

@@ -251,6 +251,12 @@ public sealed class PlatformService
 
         var role = await LoadAssignableRoleAsync(target, request.RoleId, ct);
 
+        // The super admin's own school is the platform workspace: it has no students, so
+        // school staff and parents created there would never see any data.
+        if (_user.IsPlatformAdmin && target == _user.SchoolId && role.Code != RoleCodes.SuperAdmin)
+            throw DomainException.Validation(
+                "Choose the school this user belongs to. Only super admin accounts can be created in the platform workspace.");
+
         var email = request.Email.Trim().ToLowerInvariant();
         var duplicate = await _db.UserAccounts.IgnoreQueryFilters()
             .AnyAsync(u => u.SchoolId == target && u.NormalizedEmail == email && !u.IsDeleted, ct);

@@ -53,7 +53,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final auth = context.watch<AuthController>();
 
     return Scaffold(
-      body: DecoratedBox(
+      backgroundColor: AppColors.navyDeep,
+      body: Container(
+        width: double.infinity,
+        height: double.infinity,
         decoration: const BoxDecoration(
           gradient: LinearGradient(
             colors: [AppColors.navyDeep, AppColors.navy, Color(0xFF1B5D63)],

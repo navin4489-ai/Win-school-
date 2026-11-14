@@ -232,7 +232,17 @@ export class UsersComponent implements OnInit {
     const requested = Number(this.route.snapshot.queryParamMap.get('schoolId')) || null;
     this.schoolId.set(this.isPlatformAdmin ? (requested ?? this.auth.user()?.schoolId ?? null) : null);
     if (this.isPlatformAdmin) {
-      this.api.get<SchoolOption[]>('platform/schools').subscribe({ next: s => this.schools.set(s), error: (r: unknown) => this.error.set(readError(r)) });
+      this.api.get<SchoolOption[]>('platform/schools').subscribe({
+        next: s => {
+          this.schools.set(s);
+          // Default to a real school: the platform workspace has no students or staff.
+          if (!requested) {
+            const first = s.find(x => x.id !== this.auth.user()?.schoolId);
+            if (first && first.id !== this.schoolId()) { this.schoolId.set(first.id); this.reload(); this.loadMatrix(); }
+          }
+        },
+        error: (r: unknown) => this.error.set(readError(r))
+      });
     }
     this.reload();
     this.loadMatrix();
