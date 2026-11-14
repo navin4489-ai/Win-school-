@@ -1,6 +1,6 @@
 import { localDate } from '../../core/dates';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, NgZone, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
@@ -13,6 +13,62 @@ import {
 
 type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
 type LedgerAction = 'discount' | 'cancel' | 'edit' | 'waive';
+
+interface RazorpaySuccess {
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+}
+
+interface RazorpayOptions {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill: { name?: string; email?: string; contact?: string };
+  notes?: Record<string, string>;
+  theme: { color: string };
+  handler: (response: RazorpaySuccess) => void;
+  modal: { ondismiss: () => void };
+}
+
+interface RazorpayInstance {
+  open(): void;
+  on(event: 'payment.failed', callback: (failure: { error?: { description?: string } }) => void): void;
+}
+
+declare global {
+  interface Window {
+    Razorpay?: new (options: RazorpayOptions) => RazorpayInstance;
+  }
+}
+
+const RAZORPAY_SCRIPT = 'https://checkout.razorpay.com/v1/checkout.js';
+let razorpayScript: Promise<void> | null = null;
+
+/** Loads Razorpay Checkout once; a failed load can be retried. */
+function loadRazorpayScript(): Promise<void> {
+  if (window.Razorpay) return Promise.resolve();
+  if (razorpayScript) return razorpayScript;
+
+  razorpayScript = new Promise<void>((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = RAZORPAY_SCRIPT;
+    script.async = true;
+    script.onload = () => (window.Razorpay ? resolve() : reject(new Error('Razorpay unavailable')));
+    script.onerror = () => {
+      script.remove();
+      reject(new Error('Razorpay script failed to load'));
+    };
+    document.head.appendChild(script);
+  }).catch(error => {
+    razorpayScript = null;
+    throw error;
+  });
+  return razorpayScript;
+}
 
 @Component({
   selector: 'app-fees',
@@ -134,9 +190,19 @@ type LedgerAction = 'discount' | 'cancel' | 'edit' | 'waive';
                         <div style="text-align:right">
                           <div>{{ installment.balance | currency:'INR':'symbol':'1.0-0' }}</div>
                           @if (installment.balance > 0) {
-                            @if (onlineEnabled()) { <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">
-                              Pay online
-                            </button> } @else { <div class="small muted">Pay at the school office</div> }
+                            @if (onlineEnabled()) {
+                              <div class="row" style="gap:6px;justify-content:flex-end;margin-top:4px">
+                                <input class="pay-amount" type="number" min="1" [max]="installment.balance" step="0.01"
+                                  aria-label="Amount to pay"
+                                  [ngModel]="payAmounts[installment.id] ?? installment.balance"
+                                  (ngModelChange)="payAmounts[installment.id] = $event"
+                                  [disabled]="paying()" />
+                                <button class="btn btn-gold btn-sm" type="button" [disabled]="paying()"
+                                  (click)="payOnlineAmount(installment)">
+                                  {{ payingInstallmentId() === installment.id ? 'Opening…' : 'Pay online' }}
+                                </button>
+                              </div>
+                            } @else { <div class="small muted">Pay at the school office</div> }
                           }
                         </div>
                       </div>
@@ -328,7 +394,7 @@ type LedgerAction = 'discount' | 'cancel' | 'edit' | 'waive';
                         @if (installment.balance > 0) {
                           <div class="row" style="gap:6px;justify-content:flex-end;margin-top:4px">
                             <button class="btn btn-ghost btn-sm" type="button" (click)="payInstallment(installment.id, installment.balance)">Pay</button>
-                            @if (onlineEnabled()) { <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">Pay online</button> }
+                            @if (onlineEnabled()) { <button class="btn btn-gold btn-sm" type="button" [disabled]="paying()" (click)="startOnlinePayment(installment.id, installment.balance)">{{ payingInstallmentId() === installment.id ? 'Opening…' : 'Pay online' }}</button> }
                           </div>
                         }
                         @if (canManage() && isOpen(installment)) {
@@ -451,53 +517,17 @@ type LedgerAction = 'discount' | 'cancel' | 'edit' | 'waive';
           }
         </section>
       }
-
-      @if (checkout(); as order) {
-        <div class="modal-backdrop" (click)="checkout.set(null)">
-          <div class="modal" (click)="$event.stopPropagation()">
-            <div class="modal-head">
-              <h3>Secure checkout</h3>
-              <span class="badge gold">{{ order.gateway }}</span>
-            </div>
-            <div class="modal-body">
-              <div class="checkout-amount">{{ order.amount | currency:'INR':'symbol':'1.2-2' }}</div>
-              <div class="small muted">{{ order.studentName }}</div>
-              @if (order.installmentName) {
-                <div class="small muted">Installment: {{ order.installmentName }}</div>
-              }
-              <div class="divider"></div>
-              <label class="field">
-                <span>Card / UPI reference</span>
-                <input [(ngModel)]="cardReference" placeholder="Reference shown by your bank or UPI app" />
-              </label>
-              <p class="small muted">
-                Paying through {{ order.gateway }}. The amount is verified against the order the server created.
-              </p>
-            </div>
-            <div class="modal-foot">
-              <button class="btn btn-ghost" type="button" (click)="checkout.set(null)" [disabled]="paying()">Cancel</button>
-              <button class="btn btn-primary" type="button" (click)="completeOnlinePayment(order)" [disabled]="paying()">
-                {{ paying() ? 'Processing…' : 'Pay ' + (order.amount | currency:'INR':'symbol':'1.0-0') }}
-              </button>
-            </div>
-          </div>
-        </div>
-      }
     </div>
   `,
   styles: [`
-    .modal-backdrop { position: fixed; inset: 0; background: rgba(6, 20, 35, .55); display: grid; place-items: center; z-index: 70; padding: 20px; }
-    .modal { width: min(420px, 100%); background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
-    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 15px 18px; border-bottom: 1px solid var(--line); }
-    .modal-body { padding: 18px; display: grid; gap: 10px; }
-    .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 13px 18px; border-top: 1px solid var(--line); background: #fbfdff; }
-    .checkout-amount { font-size: 30px; font-weight: 700; letter-spacing: -.03em; }
+    .pay-amount { width: 110px; padding: 5px 8px; font-size: 13px; text-align: right; }
   `]
 })
 export class FeesComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly fb = inject(FormBuilder);
   private readonly auth = inject(AuthService);
+  private readonly zone = inject(NgZone);
 
   readonly tab = signal<Tab>('collect');
   readonly ledger = signal<Ledger | null>(null);
@@ -512,10 +542,13 @@ export class FeesComponent implements OnInit {
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
   readonly classId = signal('');
-  readonly checkout = signal<PaymentOrder | null>(null);
   readonly paying = signal(false);
-  cardReference = '';
+  readonly payingInstallmentId = signal<number | null>(null);
+  /** Amounts a parent typed for partial online payments, keyed by installment id. */
+  payAmounts: Record<number, number | null> = {};
   readonly onlineEnabled = signal(false);
+  readonly gateway = signal('');
+  readonly keyId = signal('');
 
   // Parents and students both get the family view: their own ledger, never school-wide figures.
   readonly isStudent = computed(() => this.auth.user()?.roleCode === 'Student');
@@ -658,8 +691,14 @@ export class FeesComponent implements OnInit {
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    this.api.get<{ onlineEnabled: boolean }>('fees/payment-config').subscribe({
-      next: c => this.onlineEnabled.set(!!c.onlineEnabled),
+    this.api.get<{ onlineEnabled: boolean; gateway?: string; keyId?: string }>('fees/payment-config').subscribe({
+      next: c => {
+        // Online payment is offered only through Razorpay Checkout with a public key.
+        const razorpay = (c.gateway ?? '').toLowerCase() === 'razorpay' && !!c.keyId;
+        this.gateway.set(c.gateway ?? '');
+        this.keyId.set(c.keyId ?? '');
+        this.onlineEnabled.set(!!c.onlineEnabled && razorpay);
+      },
       error: () => this.onlineEnabled.set(false)
     });
 
@@ -778,54 +817,123 @@ export class FeesComponent implements OnInit {
     });
   }
 
-  /** Opens a payment session with the gateway and shows the checkout sheet. */
-  startOnlinePayment(installmentId: number, amount: number): void {
+  /** Validates the amount a parent typed for an installment and starts checkout. */
+  payOnlineAmount(installment: Installment): void {
+    const raw = this.payAmounts[installment.id] ?? installment.balance;
+    const amount = Math.round(Number(raw) * 100) / 100;
+    const minimum = Math.min(1, installment.balance);
+    if (!Number.isFinite(amount) || amount < minimum || amount > installment.balance) {
+      this.error.set(`Enter an amount between ₹${minimum.toLocaleString('en-IN')} and ₹${installment.balance.toLocaleString('en-IN')}.`);
+      return;
+    }
+    this.startOnlinePayment(installment.id, amount);
+  }
+
+  /** Creates a Razorpay order on the server and opens Razorpay Checkout for it. */
+  async startOnlinePayment(installmentId: number, amount: number): Promise<void> {
     const studentId = this.form.controls.studentId.value;
     if (!studentId) {
       this.error.set('Load the student ledger first.');
       return;
     }
-
-    this.error.set(null);
-    this.api
-      .post<PaymentOrder>('fees/payments/order', { studentId, amount, feeInstallmentId: installmentId })
-      .subscribe({
-        next: order => this.checkout.set(order),
-        error: () => this.error.set('The payment session could not be opened.')
-      });
-  }
-
-  completeOnlinePayment(order: PaymentOrder): void {
     if (this.paying()) return;
 
     this.paying.set(true);
+    this.payingInstallmentId.set(installmentId);
     this.error.set(null);
+    this.message.set(null);
 
+    try {
+      await loadRazorpayScript();
+    } catch {
+      this.finishPaying();
+      this.error.set('The secure payment window could not be loaded. Check your internet connection and try again.');
+      return;
+    }
+
+    this.api
+      .post<PaymentOrder>('fees/payments/order', { studentId, amount, feeInstallmentId: installmentId })
+      .subscribe({
+        next: order => this.openCheckout(order, installmentId),
+        error: response => {
+          this.finishPaying();
+          this.error.set(readError(response) ?? 'The payment could not be started. Please try again.');
+        }
+      });
+  }
+
+  private openCheckout(order: PaymentOrder, installmentId: number): void {
+    const RazorpayCheckout = window.Razorpay;
+    const key = order.keyId || this.keyId();
+    if (!RazorpayCheckout || !key) {
+      this.finishPaying();
+      this.error.set('Online payment is not available right now. Please pay at the school office.');
+      return;
+    }
+
+    const me = this.auth.user();
+    const checkout = new RazorpayCheckout({
+      key,
+      amount: Math.round(order.amount * 100),
+      currency: order.currency || 'INR',
+      name: me?.schoolName || 'School fees',
+      description: order.installmentName ? `${order.installmentName} · ${order.studentName}` : `Fees · ${order.studentName}`,
+      order_id: order.orderId,
+      prefill: { name: me?.fullName ?? '', email: me?.email ?? '' },
+      notes: { studentId: String(order.studentId), installmentId: String(installmentId) },
+      theme: { color: '#0f8a86' },
+      handler: response => this.zone.run(() => this.completeOnlinePayment(order, installmentId, response)),
+      modal: {
+        ondismiss: () => this.zone.run(() => {
+          if (!this.paying()) return;
+          this.finishPaying();
+          this.message.set('Payment cancelled.');
+        })
+      }
+    });
+
+    checkout.on('payment.failed', failure => this.zone.run(() => {
+      this.error.set(failure.error?.description
+        ? `Payment failed: ${failure.error.description}`
+        : 'The payment failed. No money was taken; please try again.');
+    }));
+    checkout.open();
+  }
+
+  private completeOnlinePayment(order: PaymentOrder, installmentId: number, response: RazorpaySuccess): void {
     this.api
       .post<Payment>('fees/payments/online', {
         studentId: order.studentId,
-        feeInstallmentId: null,
+        feeInstallmentId: installmentId,
         amount: order.amount,
-        gatewayOrderId: order.orderId,
-        gatewayPaymentId: order.paymentId,
-        idempotencyKey: crypto.randomUUID()
+        gatewayOrderId: response.razorpay_order_id,
+        gatewayPaymentId: response.razorpay_payment_id,
+        gatewaySignature: response.razorpay_signature,
+        idempotencyKey: response.razorpay_payment_id
       })
       .subscribe({
         next: payment => {
-          this.paying.set(false);
-          this.checkout.set(null);
-          this.message.set(`Payment of ${payment.amount.toLocaleString('en-IN')} received. Receipt ${payment.receiptNo}.`);
+          this.finishPaying();
+          delete this.payAmounts[installmentId];
+          this.message.set(`Payment of ₹${payment.amount.toLocaleString('en-IN')} received. Receipt ${payment.receiptNo}.`);
           this.loadLedger();
           // The outstanding list is school-wide and is not available to a parent.
           if (!this.isParent()) this.loadOutstanding();
           const now = new Date();
           this.loadPayments(new Date(now.getFullYear(), now.getMonth(), 1), now);
         },
-        error: response => {
-          this.paying.set(false);
-          this.error.set(readError(response) ?? 'The payment could not be completed.');
+        error: err => {
+          this.finishPaying();
+          this.error.set((readError(err) ?? 'The payment could not be confirmed.') +
+            ` If money was deducted, share payment id ${response.razorpay_payment_id} with the school office.`);
+          this.loadLedger();
         }
       });
+  }
+
+  private finishPaying(): void {
+    this.paying.set(false);
+    this.payingInstallmentId.set(null);
   }
 
   downloadReceipt(paymentId: number): void {

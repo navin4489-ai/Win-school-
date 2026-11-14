@@ -33,6 +33,13 @@ class _WebPortalScreenState extends State<WebPortalScreen> {
       ..setBackgroundColor(const Color(0xFFF4F7FB))
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: _onPageFinished,
+        // Payment pages may try app links (upi://, intent://) the web view cannot open;
+        // block them so the checkout stays usable with its other payment methods.
+        onNavigationRequest: (request) {
+          final scheme = Uri.tryParse(request.url)?.scheme.toLowerCase() ?? '';
+          const allowed = {'http', 'https', 'about', 'data', 'blob', 'javascript'};
+          return allowed.contains(scheme) ? NavigationDecision.navigate : NavigationDecision.prevent;
+        },
         onWebResourceError: (error) {
           if ((error.isForMainFrame ?? true) && mounted) {
             setState(() {

@@ -5,6 +5,7 @@ using SchoolErp.Domain.Common;
 using SchoolErp.Domain.Entities;
 using SchoolErp.Domain.Enums;
 using SchoolErp.Infrastructure.Persistence;
+using SchoolErp.Infrastructure.Services;
 using Xunit;
 
 namespace SchoolErp.Tests;
@@ -219,6 +220,63 @@ public sealed class FeeServiceTests
         Assert.Equal(1300m, ledger.Balance);
     }
 
+    [Fact]
+    public async Task CreatePaymentOrder_RejectsAmountAboveInstallmentBalance()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (student, installment) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway());
+
+        var error = await Assert.ThrowsAsync<DomainException>(() => service.CreatePaymentOrderAsync(
+            new CreatePaymentOrderRequest { StudentId = student.Id, FeeInstallmentId = installment.Id, Amount = 1000.5m }));
+        Assert.Equal("validation_error", error.Code);
+
+        var order = await service.CreatePaymentOrderAsync(
+            new CreatePaymentOrderRequest { StudentId = student.Id, FeeInstallmentId = installment.Id, Amount = 400m });
+        Assert.Equal(400m, order.Amount);
+        Assert.Equal("Term 1", order.InstallmentName);
+    }
+
+    [Fact]
+    public async Task RecordOnlinePayment_FailsWhenGatewayVerificationFails()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (student, installment) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway { VerificationSucceeds = false });
+
+        var error = await Assert.ThrowsAsync<DomainException>(() => service.RecordOnlinePaymentAsync(new OnlinePaymentRequest
+        {
+            StudentId = student.Id, FeeInstallmentId = installment.Id, Amount = 500m,
+            GatewayOrderId = "order_1", GatewayPaymentId = "pay_1", GatewaySignature = "bad"
+        }));
+
+        Assert.Equal("payment_failed", error.Code);
+        var saved = await db.FeeInstallments.AsNoTracking().FirstAsync(i => i.Id == installment.Id);
+        Assert.Equal(0m, saved.PaidAmount);
+        Assert.False(await db.Payments.AnyAsync());
+    }
+
+    [Fact]
+    public void Razorpay_SignatureVerification_UsesHmacSha256OfOrderAndPayment()
+    {
+        const string secret = "test_secret_key";
+        using var hmac = new System.Security.Cryptography.HMACSHA256(System.Text.Encoding.UTF8.GetBytes(secret));
+        var expected = Convert.ToHexString(
+            hmac.ComputeHash(System.Text.Encoding.UTF8.GetBytes("order_ABC123|pay_XYZ789"))).ToLowerInvariant();
+
+        Assert.Equal(expected, RazorpayPaymentGateway.ComputeSignature("order_ABC123", "pay_XYZ789", secret));
+        Assert.True(RazorpayPaymentGateway.IsSignatureValid("order_ABC123", "pay_XYZ789", expected, secret));
+        Assert.False(RazorpayPaymentGateway.IsSignatureValid("order_ABC123", "pay_OTHER", expected, secret));
+        Assert.False(RazorpayPaymentGateway.IsSignatureValid("order_ABC123", "pay_XYZ789", expected, "wrong_secret"));
+        Assert.False(RazorpayPaymentGateway.IsSignatureValid("order_ABC123", "pay_XYZ789", null, secret));
+        Assert.Equal(12000L, RazorpayPaymentGateway.ToPaise(120m));
+        Assert.Equal(10051L, RazorpayPaymentGateway.ToPaise(100.505m));
+    }
+
     private static async Task<(Student Student, FeeInstallment Installment)> SeedAsync(AppDbContext db,
         TestCurrentUser user, TestClock clock)
     {
@@ -295,17 +353,24 @@ public sealed class FeeServiceTests
     {
         public string Name => "Fake";
         public bool IsEnabled => true;
+        public string PublicKey => "fake_key";
+        public bool VerificationSucceeds { get; init; } = true;
 
-        public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference,
+        public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, GatewayOrderBinding binding,
             CancellationToken ct = default) =>
             Task.FromResult(new GatewayOrder(
                 $"FAKE-ORD-{amount:0.00}-{Guid.NewGuid():N}",
-                $"FAKE-PAY-{Guid.NewGuid():N}",
-                amount, "INR", "/checkout", DateTime.UtcNow.AddMinutes(30)));
+                string.Empty,
+                amount, "INR", string.Empty, DateTime.UtcNow.AddMinutes(30)));
 
-        public Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount,
-            CancellationToken ct = default) =>
-            Task.FromResult(new GatewayVerification(true, paymentId, null, "ok"));
+        public Task<bool> OrderMatchesAsync(string orderId, GatewayOrderBinding binding, decimal amount,
+            CancellationToken ct = default) => Task.FromResult(true);
+
+        public Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, string? signature,
+            decimal amount, CancellationToken ct = default) =>
+            Task.FromResult(VerificationSucceeds
+                ? new GatewayVerification(true, paymentId, null, "ok")
+                : new GatewayVerification(false, null, "The payment signature is invalid.", "bad"));
 
         public Task<GatewayVerification> RefundAsync(string paymentId, decimal amount,
             CancellationToken ct = default) =>

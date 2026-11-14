@@ -617,7 +617,12 @@ public sealed class FeeService
 
     // ---------- Payments ----------
 
-    public object GetPaymentConfig() => new { onlineEnabled = _gateway.IsEnabled, gateway = _gateway.Name };
+    public object GetPaymentConfig() => new
+    {
+        onlineEnabled = _gateway.IsEnabled,
+        gateway = _gateway.Name,
+        keyId = _gateway.IsEnabled ? _gateway.PublicKey : string.Empty
+    };
 
     /// <summary>
     /// Opens a payment session with the gateway. Parents may do this for their own
@@ -633,16 +638,51 @@ public sealed class FeeService
             ?? throw DomainException.NotFound("Student");
 
         var amount = Math.Round(request.Amount, 2, MidpointRounding.AwayFromZero);
-        var reference = $"FEE-{student.Id}-{student.AdmissionNo}";
-        var order = await _gateway.CreateOrderAsync(amount, reference, ct);
+        if (amount <= 0) throw DomainException.Validation("The amount must be greater than zero.");
 
         string? installmentName = null;
+        int? installmentId = null;
         if (request.FeeInstallmentId is > 0)
         {
-            installmentName = await _db.FeeInstallments
-                .Where(i => i.Id == request.FeeInstallmentId && i.SchoolId == SchoolId && !i.IsDeleted)
-                .Select(i => i.Name).FirstOrDefaultAsync(ct);
+            var installment = await (
+                from i in _db.FeeInstallments
+                join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
+                where i.Id == request.FeeInstallmentId && i.SchoolId == SchoolId && !i.IsDeleted &&
+                      a.StudentId == student.Id
+                select i).FirstOrDefaultAsync(ct)
+                ?? throw DomainException.NotFound("Fee installment");
+
+            if (installment.Status is InstallmentStatus.Paid or InstallmentStatus.Waived)
+                throw DomainException.Conflict("This installment is already settled.");
+
+            var balance = installment.TotalAmount - installment.PaidAmount;
+            if (amount > balance + 0.01m)
+                throw DomainException.Validation($"The amount exceeds the installment balance of {balance:0.00}.");
+
+            installmentName = installment.Name;
+            installmentId = installment.Id;
         }
+        else
+        {
+            // Without an installment the payment is applied to the earliest due one, so it
+            // can never exceed that installment's balance.
+            var next = await (
+                from i in _db.FeeInstallments
+                join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
+                where a.StudentId == student.Id && a.IsActive && !a.IsDeleted && !i.IsDeleted &&
+                      i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived &&
+                      i.Amount + i.PenaltyAmount > i.PaidAmount
+                orderby i.DueDate
+                select i).FirstOrDefaultAsync(ct)
+                ?? throw DomainException.Validation("The student has no outstanding fees.");
+            var balance = next.TotalAmount - next.PaidAmount;
+            if (amount > balance + 0.01m)
+                throw DomainException.Validation($"The amount exceeds the outstanding balance of {balance:0.00}.");
+        }
+
+        var reference = $"FEE-{student.Id}-{student.AdmissionNo}";
+        var order = await _gateway.CreateOrderAsync(amount, reference,
+            new GatewayOrderBinding(SchoolId, student.Id, installmentId), ct);
 
         return new PaymentOrderDto
         {
@@ -653,6 +693,7 @@ public sealed class FeeService
             CheckoutUrl = order.CheckoutUrl,
             ExpiresAtUtc = order.ExpiresAtUtc,
             Gateway = _gateway.Name,
+            KeyId = _gateway.PublicKey,
             StudentId = student.Id,
             StudentName = student.FullName,
             InstallmentName = installmentName
@@ -672,6 +713,7 @@ public sealed class FeeService
             Mode = PaymentMode.Online,
             GatewayOrderId = request.GatewayOrderId,
             GatewayPaymentId = request.GatewayPaymentId,
+            GatewaySignature = request.GatewaySignature,
             IdempotencyKey = request.IdempotencyKey
         }, ct);
     }
@@ -742,7 +784,16 @@ public sealed class FeeService
                 if (alreadyCredited)
                     throw DomainException.Conflict("This online payment has already been recorded.");
 
-                var verification = await _gateway.VerifyAsync(gatewayOrderId, gatewayPaymentId, request.Amount, token);
+                // The order must have been opened for this exact school, student, installment
+                // and amount, so nobody can complete a payment with someone else's order.
+                var binding = new GatewayOrderBinding(SchoolId, student.Id,
+                    request.FeeInstallmentId is > 0 ? request.FeeInstallmentId : null);
+                var orderMatches = await _gateway.OrderMatchesAsync(gatewayOrderId, binding, request.Amount, token);
+                var verification = orderMatches
+                    ? await _gateway.VerifyAsync(gatewayOrderId, gatewayPaymentId, request.GatewaySignature,
+                        request.Amount, token)
+                    : new GatewayVerification(false, null,
+                        "The payment order does not match this student, installment or amount.", null);
                 if (!verification.Success)
                 {
                     _db.Add(new PaymentTransaction

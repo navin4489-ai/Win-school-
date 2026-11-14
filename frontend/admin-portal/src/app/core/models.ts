@@ -184,6 +184,7 @@ export interface PaymentOrder {
   checkoutUrl: string;
   expiresAtUtc: string;
   gateway: string;
+  keyId: string;
   studentId: number;
   studentName: string;
   installmentName?: string | null;

@@ -11,6 +11,7 @@ import '../core/api_client.dart';
 import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
+import 'web_portal_screen.dart';
 
 const _genericError = 'Something went wrong. Please try again.';
 
@@ -199,65 +200,21 @@ class _FeesScreenState extends State<FeesScreen> {
     }
   }
 
-  /// Pays an installment through the gateway and confirms the payment.
-  Future<void> _payOnline(Installment installment) async {
-    final ledger = _ledger;
-    if (ledger == null || _busy || !_onlineEnabled) return;
-
-    final api = context.read<AuthController>().api;
-    final idempotencyKey = _newIdempotencyKey();
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-
+  /// Online payment runs in the web portal (Razorpay Checkout) inside the app,
+  /// already signed in; the ledger is reloaded when the parent comes back.
+  Future<void> _payOnline() async {
+    if (_ledger == null || _busy || !_onlineEnabled) return;
+    setState(() => _busy = true);
     try {
-      final order = await api.post(
-        'fees/payments/order',
-        body: {
-          'studentId': ledger.studentId,
-          'amount': installment.balance,
-          'feeInstallmentId': installment.id,
-        },
-      ) as Map<String, dynamic>;
-
-      if (!mounted) return;
-
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => _CheckoutDialog(order: PaymentOrder.fromJson(order)),
-      );
-
-      if (confirmed != true || !mounted) return;
-
-      final payment = await api.post(
-        'fees/payments/online',
-        body: {
-          'studentId': ledger.studentId,
-          'amount': installment.balance,
-          'gatewayOrderId': order['orderId'],
-          'gatewayPaymentId': order['paymentId'],
-          'idempotencyKey': idempotencyKey,
-        },
-      ) as Map<String, dynamic>;
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Receipt ${payment['receiptNo']} received for ₹${payment['amount']}.'),
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => const WebPortalScreen(title: 'Pay fees', route: '/fees'),
         ),
       );
-      setState(() => _busy = false);
-      await _loadLedger();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      setState(() => _error = exception.message);
-    } catch (_) {
-      if (!mounted) return;
-      setState(() => _error = _genericError);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+    if (mounted) await _loadLedger();
   }
 
   /// Downloads a receipt or the full statement and hands it to the share sheet so
@@ -528,10 +485,7 @@ class _FeesScreenState extends State<FeesScreen> {
                       SizedBox(
                         width: double.infinity,
                         child: FilledButton(
-                          onPressed: _busy ? null : () => _payOnline(_ledger!.installments.firstWhere(
-                                (item) => item.balance > 0,
-                                orElse: () => _ledger!.installments.first,
-                              )),
+                          onPressed: _busy ? null : _payOnline,
                           child: const Text('Pay online'),
                         ),
                       ),
@@ -617,7 +571,7 @@ class _FeesScreenState extends State<FeesScreen> {
                           ),
                         if (installment.balance > 0 && !canCollect && _onlineEnabled)
                           TextButton(
-                            onPressed: _busy ? null : () => _payOnline(installment),
+                            onPressed: _busy ? null : _payOnline,
                             style: TextButton.styleFrom(
                               padding: EdgeInsets.zero,
                               minimumSize: const Size(40, 24),
@@ -660,50 +614,6 @@ class _FeesScreenState extends State<FeesScreen> {
           ],
         ],
       ),
-    );
-  }
-}
-
-class _CheckoutDialog extends StatelessWidget {
-  const _CheckoutDialog({required this.order});
-
-  final PaymentOrder order;
-
-  @override
-  Widget build(BuildContext context) {
-    final money = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 2);
-
-    return AlertDialog(
-      title: const Text('Secure checkout'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            money.format(order.amount),
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 2),
-          Text(order.studentName, style: const TextStyle(color: AppColors.muted, fontSize: 12)),
-          if (order.installmentName != null)
-            Text(
-              'Installment: ${order.installmentName}',
-              style: const TextStyle(color: AppColors.muted, fontSize: 12),
-            ),
-          const SizedBox(height: 12),
-          const Text(
-            'The amount is verified against the order the school server created.',
-            style: TextStyle(color: AppColors.muted, fontSize: 11),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancel')),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text('Pay ${money.format(order.amount)}'),
-        ),
-      ],
     );
   }
 }

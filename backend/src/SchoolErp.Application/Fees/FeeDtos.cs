@@ -166,6 +166,7 @@ public sealed class RecordPaymentRequest
     [MaxLength(500)] public string? Remarks { get; set; }
     [MaxLength(100)] public string? GatewayOrderId { get; set; }
     [MaxLength(100)] public string? GatewayPaymentId { get; set; }
+    [MaxLength(256)] public string? GatewaySignature { get; set; }
 }
 
 public sealed class RefundRequest
@@ -234,6 +235,8 @@ public sealed class PaymentOrderDto
     public string CheckoutUrl { get; init; } = string.Empty;
     public DateTime ExpiresAtUtc { get; init; }
     public string Gateway { get; init; } = string.Empty;
+    /// <summary>Public checkout key (Razorpay key id); empty when online payment is disabled.</summary>
+    public string KeyId { get; init; } = string.Empty;
     public int StudentId { get; init; }
     public string StudentName { get; init; } = string.Empty;
     public string? InstallmentName { get; init; }
@@ -246,6 +249,7 @@ public sealed class OnlinePaymentRequest
     [Range(0.01, 10_000_000)] public decimal Amount { get; set; }
     [Required, MaxLength(100)] public string GatewayOrderId { get; set; } = string.Empty;
     [Required, MaxLength(100)] public string GatewayPaymentId { get; set; } = string.Empty;
+    [MaxLength(256)] public string? GatewaySignature { get; set; }
     [MaxLength(100)] public string? IdempotencyKey { get; set; }
 }
 

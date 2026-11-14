@@ -73,10 +73,28 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IFileStorage, DatabaseFileStorage>();
         services.AddScoped<INotificationSender, LogNotificationSender>();
 
-        // Online payments stay disabled (pay at the school office) until a real payment
-        // provider is integrated; nothing is ever marked paid without a verified gateway payment.
+        // Online payments: Razorpay when Payments:Provider = "Razorpay", otherwise disabled
+        // (pay at the school office). Nothing is marked paid without a verified gateway payment.
         var isProduction = string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Production", StringComparison.OrdinalIgnoreCase);
-        services.AddScoped<IPaymentGateway, DisabledPaymentGateway>();
+        services.Configure<RazorpayOptions>(configuration.GetSection(RazorpayOptions.SectionName));
+        if (string.Equals(configuration["Payments:Provider"], "Razorpay", StringComparison.OrdinalIgnoreCase))
+        {
+            var razorpay = configuration.GetSection(RazorpayOptions.SectionName).Get<RazorpayOptions>() ?? new RazorpayOptions();
+            if (!razorpay.HasKeys)
+                throw new InvalidOperationException(
+                    "Payments:Provider is 'Razorpay' but Payments:Razorpay:KeyId and Payments:Razorpay:KeySecret are not both set. " +
+                    "Set Payments__Razorpay__KeyId and Payments__Razorpay__KeySecret, or remove Payments__Provider.");
+            services.AddHttpClient<RazorpayPaymentGateway>(client =>
+            {
+                client.BaseAddress = new Uri(RazorpayPaymentGateway.BaseUrl);
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+            services.AddScoped<IPaymentGateway>(sp => sp.GetRequiredService<RazorpayPaymentGateway>());
+        }
+        else
+        {
+            services.AddScoped<IPaymentGateway, DisabledPaymentGateway>();
+        }
         services.AddScoped<DbInitializer>();
 
         // Live notification fan-out is process local; a multi-node deployment must

@@ -173,12 +173,22 @@ public sealed record GatewayOrder(
     string CheckoutUrl,
     DateTime ExpiresAtUtc);
 
+/// <summary>Who an online payment order was opened for; stored on the gateway order.</summary>
+public sealed record GatewayOrderBinding(int SchoolId, int StudentId, int? InstallmentId);
+
 public interface IPaymentGateway
 {
     string Name { get; }
     /// <summary>False when no real gateway is configured; online payments are then refused.</summary>
     bool IsEnabled { get; }
-    Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, CancellationToken ct = default);
-    Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount, CancellationToken ct = default);
+    /// <summary>Public key used by the browser checkout; empty when the gateway has none.</summary>
+    string PublicKey { get; }
+    Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, GatewayOrderBinding binding,
+        CancellationToken ct = default);
+    /// <summary>Confirms the order was opened for this school, student, installment and amount.</summary>
+    Task<bool> OrderMatchesAsync(string orderId, GatewayOrderBinding binding, decimal amount,
+        CancellationToken ct = default);
+    Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, string? signature, decimal amount,
+        CancellationToken ct = default);
     Task<GatewayVerification> RefundAsync(string paymentId, decimal amount, CancellationToken ct = default);
 }

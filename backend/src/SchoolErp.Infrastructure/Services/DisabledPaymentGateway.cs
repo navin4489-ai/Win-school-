@@ -5,17 +5,21 @@ namespace SchoolErp.Infrastructure.Services;
 
 /// <summary>
 /// Used when no payment provider is configured. Online payment is refused instead of
-/// being faked; fees are still collected at the counter (cash, UPI, cheque…).
+/// being faked; fees are still collected at the counter (cash, UPI, cheque.).
 /// </summary>
 public sealed class DisabledPaymentGateway : IPaymentGateway
 {
     public string Name => "Not configured";
     public bool IsEnabled => false;
+    public string PublicKey => string.Empty;
 
-    public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, CancellationToken ct = default) =>
-        throw Disabled();
+    public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, GatewayOrderBinding binding,
+        CancellationToken ct = default) => throw Disabled();
 
-    public Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount,
+    public Task<bool> OrderMatchesAsync(string orderId, GatewayOrderBinding binding, decimal amount,
+        CancellationToken ct = default) => throw Disabled();
+
+    public Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, string? signature, decimal amount,
         CancellationToken ct = default) => throw Disabled();
 
     public Task<GatewayVerification> RefundAsync(string paymentId, decimal amount, CancellationToken ct = default) =>
