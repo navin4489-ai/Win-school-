@@ -1,0 +1,21 @@
+name: Keep API awake (late fees & notifications)
+
+# Render's free plan puts the API to sleep after ~15 idle minutes, which pauses the
+# built-in hourly jobs (late-fee accrual and notification dispatch). Pinging the API
+# every 10 minutes keeps it awake so those jobs keep running on schedule.
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping API (retries while it wakes up)
+        run: |
+          curl --fail --silent --show-error --retry 6 --retry-delay 20 --retry-all-errors --max-time 90 \
+            https://school-erp-api-3j9e.onrender.com/health/ready -w "\nHTTP %{http_code}\n"
