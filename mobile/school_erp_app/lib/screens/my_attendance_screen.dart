@@ -93,6 +93,7 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
   }
 
   Future<void> _startCamera() async {
+    if (_cameraReady) return;
     setState(() {
       _error = null;
       _needsSettings = false;
@@ -269,7 +270,7 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
           'photoUrl': _photoUrl,
           'latitude': _position?.latitude,
           'longitude': _position?.longitude,
-          'source': 'Mobile',
+          'source': _position != null ? 'Gps' : 'Mobile',
         },
       );
 
@@ -362,6 +363,24 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
                     style: const TextStyle(color: AppColors.muted, fontSize: 12),
                   ),
                   const SizedBox(height: 12),
+                  if (_cameraReady && _camera != null && _camera!.value.isInitialized) ...[
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: AspectRatio(
+                        aspectRatio: 3 / 4,
+                        child: FittedBox(
+                          fit: BoxFit.cover,
+                          clipBehavior: Clip.hardEdge,
+                          child: SizedBox(
+                            width: _camera!.value.previewSize?.height ?? 300,
+                            height: _camera!.value.previewSize?.width ?? 400,
+                            child: CameraPreview(_camera!),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                  ],
                   Row(
                     children: [
                       Expanded(

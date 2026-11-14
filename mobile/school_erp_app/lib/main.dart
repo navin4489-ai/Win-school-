@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'core/api_client.dart';
 import 'core/auth_controller.dart';
+import 'core/permissions.dart';
 import 'core/theme.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
@@ -19,6 +20,9 @@ Future<void> main() async {
       child: const SchoolErpApp(),
     ),
   );
+
+  // First launch: ask for camera and location (used for staff check-in).
+  WidgetsBinding.instance.addPostFrameCallback((_) => AppPermissions.requestOnFirstRun());
 }
 
 class SchoolErpApp extends StatelessWidget {

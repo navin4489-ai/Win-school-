@@ -19,7 +19,7 @@ public enum AdmissionStatus
 
 public enum AttendanceStatus { Present, Absent, Late, HalfDay, Leave }
 
-public enum AttendanceSource { Manual, Biometric, Rfid, Qr, Gps }
+public enum AttendanceSource { Manual, Biometric, Rfid, Qr, Gps, Mobile }
 
 public enum EmploymentStatus { Active, OnLeave, Resigned, Terminated, Retired }
 
