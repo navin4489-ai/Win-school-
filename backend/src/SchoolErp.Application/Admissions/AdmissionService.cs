@@ -182,6 +182,10 @@ public sealed class AdmissionService
 
     public async Task<EnrollmentResult> EnrollAsync(int id, EnrollAdmissionRequest request, CancellationToken ct = default)
     {
+        if (!string.IsNullOrWhiteSpace(request.ParentPassword) &&
+            (request.ParentPassword.Length < 8 || !request.ParentPassword.Any(char.IsLetter) || !request.ParentPassword.Any(char.IsDigit)))
+            throw DomainException.Validation("Parent password must be at least 8 characters and contain letters and digits.");
+
         return await _uow.ExecuteInTransactionAsync(async token =>
         {
             var admission = await _db.Admissions

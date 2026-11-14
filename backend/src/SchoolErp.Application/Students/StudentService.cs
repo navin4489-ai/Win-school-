@@ -341,19 +341,44 @@ public sealed class StudentService
             _ => throw DomainException.Validation("Certificate type must be bonafide, transfer or character.")
         };
 
-        var body = type.ToLowerInvariant() switch
+        var kind = type.ToLowerInvariant();
+        string body;
+        if (kind == "transfer")
         {
-            "transfer" =>
+            var outstanding = await (
+                from i in _db.FeeInstallments
+                join a in _db.StudentFeeAssignments on i.StudentFeeAssignmentId equals a.Id
+                where a.StudentId == student.Id && a.SchoolId == SchoolId && a.IsActive && !a.IsDeleted && !i.IsDeleted &&
+                      i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived
+                select i.Amount + i.PenaltyAmount - i.PaidAmount).ToListAsync(ct);
+            var balance = outstanding.Where(x => x > 0).Sum();
+            body =
                 $"This is to certify that {student.FullName}, admission no. {student.AdmissionNo}, was a student of {className} - {sectionName} " +
                 $"from {student.AdmissionDate:dd MMM yyyy} and has been withdrawn on {student.WithdrawalDate?.ToString("dd MMM yyyy") ?? "this date"}. " +
-                "All dues have been settled as per records.",
-            "character" =>
+                (balance == 0
+                    ? "All dues have been settled as per records."
+                    : $"Outstanding dues: Rs. {balance:0.00} as per records.");
+        }
+        else if (kind == "character")
+        {
+            body =
                 $"This is to certify that {student.FullName}, admission no. {student.AdmissionNo}, is a student of {className} - {sectionName} " +
-                "and bears a good moral character. We wish them success in future endeavours.",
-            _ =>
-                $"This is to certify that {student.FullName}, son/daughter of {student.FirstName}'s guardian, admission no. {student.AdmissionNo}, " +
-                $"is a bonafide student of {className} - {sectionName} for the current academic session."
-        };
+                "and bears a good moral character. We wish them success in future endeavours.";
+        }
+        else
+        {
+            var guardian = await GetPrimaryGuardianAsync(student.Id, ct)
+                ?? await (from sp in _db.StudentParents
+                          join g in _db.Guardians on sp.GuardianId equals g.Id
+                          where sp.StudentId == student.Id && !sp.IsDeleted && !g.IsDeleted
+                          orderby sp.Id
+                          select g).FirstOrDefaultAsync(ct);
+            var guardianName = guardian is null ? string.Empty : $"{guardian.FirstName} {guardian.LastName}".Trim();
+            if (guardianName.Length == 0) guardianName = "their parent/guardian";
+            body =
+                $"This is to certify that {student.FullName}, son/daughter of {guardianName}, admission no. {student.AdmissionNo}, " +
+                $"is a bonafide student of {className} - {sectionName} for the current academic session.";
+        }
 
         const string style = "body{font-family:Georgia,serif;margin:48px;color:#1f2937}" +
             ".head{text-align:center;border-bottom:2px solid #0f766e;padding-bottom:16px}" +

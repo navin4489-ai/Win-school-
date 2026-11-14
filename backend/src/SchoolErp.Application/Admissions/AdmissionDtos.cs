@@ -71,7 +71,7 @@ public sealed class EnrollAdmissionRequest
     [MaxLength(20)] public string? RollNo { get; set; }
     public bool CreateParentLogin { get; set; } = true;
     [MinLength(8), MaxLength(128)] public string? ParentPassword { get; set; }
-    public decimal? AdmissionFeeAmount { get; set; }
+    [Range(0, 10_000_000)] public decimal? AdmissionFeeAmount { get; set; }
 }
 
 public sealed class EnrollmentResult

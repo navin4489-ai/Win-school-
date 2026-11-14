@@ -32,6 +32,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ReportService>();
         services.AddScoped<NotificationService>();
         services.AddScoped<OperationsService>();
+        services.AddOptions<LibraryOptions>().BindConfiguration(LibraryOptions.SectionName);
         services.AddScoped<Platform.PlatformService>();
         return services;
     }

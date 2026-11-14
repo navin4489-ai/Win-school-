@@ -26,8 +26,8 @@ public sealed class SaveEmployeeRequest
     public int? DesignationId { get; set; }
     public DateOnly JoiningDate { get; set; }
     [MaxLength(250)] public string? Qualification { get; set; }
-    public decimal? ExperienceYears { get; set; }
-    public decimal? BasicSalary { get; set; }
+    [Range(0, 60)] public decimal? ExperienceYears { get; set; }
+    [Range(0, 100_000_000)] public decimal? BasicSalary { get; set; }
 }
 
 public sealed class LeaveDto
@@ -178,14 +178,14 @@ public sealed class IssueBookRequest
     [Range(1, int.MaxValue)] public int BookId { get; set; }
     public int? StudentId { get; set; }
     public int? EmployeeId { get; set; }
-    public int LoanDays { get; set; } = 14;
+    [Range(1, 365)] public int LoanDays { get; set; } = 14;
 }
 
 public sealed class ReturnBookRequest
 {
     [Range(1, int.MaxValue)] public int BookTransactionId { get; set; }
     public bool IsLost { get; set; }
-    public decimal? FineAmount { get; set; }
+    [Range(0, 100_000)] public decimal? FineAmount { get; set; }
 }
 
 public sealed class BookTransactionDto
@@ -230,7 +230,8 @@ public sealed class StockEntryRequest
 {
     [Range(1, int.MaxValue)] public int InventoryItemId { get; set; }
     public StockTransactionType Type { get; set; } = StockTransactionType.Inward;
-    [Range(0.01, 1_000_000)] public decimal Quantity { get; set; }
+    /// <summary>Units moved for Inward/Outward/Return (must be greater than 0); the new on-hand quantity for Adjustment (may be 0).</summary>
+    [Range(0, 1_000_000)] public decimal Quantity { get; set; }
     [MaxLength(100)] public string? ReferenceNo { get; set; }
     [MaxLength(500)] public string? Remarks { get; set; }
 }

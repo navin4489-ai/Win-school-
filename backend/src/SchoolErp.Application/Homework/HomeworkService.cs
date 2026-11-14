@@ -76,6 +76,9 @@ public sealed class HomeworkService
         var subject = await _db.Subjects.FirstOrDefaultAsync(s => s.Id == request.SubjectId && s.SchoolId == SchoolId && !s.IsDeleted, ct)
             ?? throw DomainException.NotFound("Subject");
 
+        if (request.DueAtUtc <= _clock.UtcNow)
+            throw DomainException.Validation("Homework due date must be in the future.");
+
         var employeeId = await ResolveTeacherAsync(request.ClassId, request.SectionId, request.SubjectId, ct);
 
         var homework = new SchoolErp.Domain.Entities.Homework
@@ -109,6 +112,7 @@ public sealed class HomeworkService
     {
         var homework = await _db.Homework.FirstOrDefaultAsync(h => h.Id == homeworkId && h.SchoolId == SchoolId && !h.IsDeleted, ct)
             ?? throw DomainException.NotFound("Homework");
+        EnsureCanManage(homework);
 
         return await (
             from submission in _db.AssignmentSubmissions
@@ -135,11 +139,16 @@ public sealed class HomeworkService
         var homework = await _db.Homework.FirstOrDefaultAsync(h => h.Id == homeworkId && h.SchoolId == SchoolId && !h.IsDeleted, ct)
             ?? throw DomainException.NotFound("Homework");
 
+        if (!homework.IsPublished) throw DomainException.NotFound("Homework");
+
         if (homework.ClassId != student.ClassId || homework.SectionId != student.SectionId)
             throw DomainException.Forbidden("This homework is not assigned to your class.");
 
         var submission = await _db.AssignmentSubmissions
             .FirstOrDefaultAsync(s => s.HomeworkId == homeworkId && s.StudentId == student.Id && !s.IsDeleted, ct);
+
+        if (submission?.Marks is not null)
+            throw DomainException.Conflict("This homework has already been graded.");
 
         if (submission is null)
         {
@@ -175,6 +184,7 @@ public sealed class HomeworkService
             ?? throw DomainException.NotFound("Submission");
 
         var homework = await _db.Homework.FirstAsync(h => h.Id == submission.HomeworkId, ct);
+        EnsureCanManage(homework);
         if (homework.MaxMarks is not null && request.Marks > homework.MaxMarks)
             throw DomainException.Validation($"Marks cannot exceed {homework.MaxMarks}.");
 
@@ -191,6 +201,17 @@ public sealed class HomeworkService
             FileUrl = submission.FileUrl, Remarks = submission.Remarks,
             Marks = submission.Marks, Feedback = submission.Feedback, IsLate = submission.IsLate
         };
+    }
+
+    private void EnsureCanManage(SchoolErp.Domain.Entities.Homework homework)
+    {
+        if (_user.IsInRole(RoleCodes.Principal) || _user.IsInRole(RoleCodes.Administrator) ||
+            _user.IsInRole(RoleCodes.SchoolOwner) || _user.IsInRole(RoleCodes.SuperAdmin))
+            return;
+
+        if ((_user.IsInRole(RoleCodes.Teacher) || _user.IsInRole(RoleCodes.ClassCoordinator)) &&
+            homework.EmployeeId != _user.EmployeeId)
+            throw DomainException.Forbidden("You can only manage submissions for homework you assigned.");
     }
 
     private async Task<int> ResolveTeacherAsync(int classId, int sectionId, int subjectId, CancellationToken ct)

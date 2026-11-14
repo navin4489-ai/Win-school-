@@ -275,8 +275,11 @@ public sealed class ReportService
         });
     }
 
-    private static string Csv(string value)
+    public static string Csv(string value)
     {
+        // Neutralise spreadsheet formula injection (CWE-1236).
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+            value = "'" + value;
         if (value.Contains('"') || value.Contains(',') || value.Contains('\n') || value.Contains('\r'))
             return "\"" + value.Replace("\"", "\"\"") + "\"";
         return value;

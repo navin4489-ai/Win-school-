@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SchoolErp.Application.Common;
 
 namespace SchoolErp.Application.Platform;
 
@@ -35,7 +36,7 @@ public class SaveSchoolRequest
 {
     [Required, MaxLength(200)] public string Name { get; set; } = string.Empty;
     [MaxLength(200)] public string? LegalName { get; set; }
-    [MaxLength(512)] public string? LogoUrl { get; set; }
+    [SafeUrl, MaxLength(512)] public string? LogoUrl { get; set; }
     [EmailAddress, MaxLength(256)] public string? Email { get; set; }
     [MaxLength(32)] public string? Phone { get; set; }
     [MaxLength(2000)] public string? AddressLine1 { get; set; }

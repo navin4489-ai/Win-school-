@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using SchoolErp.Application.Common;
 using SchoolErp.Domain.Enums;
 
 namespace SchoolErp.Application.Attendance;
@@ -93,7 +94,7 @@ public sealed class CheckInRequest
     public AttendanceSource Source { get; set; } = AttendanceSource.Manual;
 
     /// <summary>Public URL of the photo captured from the device camera.</summary>
-    [MaxLength(512)] public string? PhotoUrl { get; set; }
+    [SafeUrl, MaxLength(512)] public string? PhotoUrl { get; set; }
 
     [Range(-90, 90)] public double? Latitude { get; set; }
 

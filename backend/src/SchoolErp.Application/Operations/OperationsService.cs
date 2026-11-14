@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using SchoolErp.Application.Common;
 using SchoolErp.Domain.Common;
 using SchoolErp.Domain.Entities;
@@ -12,13 +13,16 @@ public sealed class OperationsService
     private readonly IUnitOfWork _uow;
     private readonly ICurrentUser _user;
     private readonly IDateTimeProvider _clock;
+    private readonly LibraryOptions _library;
 
-    public OperationsService(IAppDbContext db, IUnitOfWork uow, ICurrentUser user, IDateTimeProvider clock)
+    public OperationsService(IAppDbContext db, IUnitOfWork uow, ICurrentUser user, IDateTimeProvider clock,
+        IOptions<LibraryOptions> libraryOptions)
     {
         _db = db;
         _uow = uow;
         _user = user;
         _clock = clock;
+        _library = libraryOptions.Value;
     }
 
     private int SchoolId => _user.SchoolId ?? throw DomainException.Unauthorized();
@@ -141,6 +145,13 @@ public sealed class OperationsService
         var employee = await _db.Employees.FirstOrDefaultAsync(e => e.Id == employeeId && e.SchoolId == SchoolId && !e.IsDeleted, ct)
             ?? throw DomainException.NotFound("Employee");
 
+        var overlaps = await _db.LeaveApplications.AnyAsync(l =>
+            l.SchoolId == SchoolId && l.EmployeeId == employee.Id && !l.IsDeleted &&
+            (l.Status == LeaveStatus.Pending || l.Status == LeaveStatus.Approved) &&
+            l.FromDate <= request.ToDate && l.ToDate >= request.FromDate, ct);
+        if (overlaps)
+            throw DomainException.Conflict("A pending or approved leave already overlaps these dates.");
+
         var leave = new LeaveApplication
         {
             SchoolId = SchoolId,
@@ -168,6 +179,8 @@ public sealed class OperationsService
             ?? throw DomainException.NotFound("Leave application");
 
         if (leave.Status != LeaveStatus.Pending) throw DomainException.Conflict("Leave is not pending approval.");
+        if (_user.EmployeeId is not null && leave.EmployeeId == _user.EmployeeId)
+            throw DomainException.Forbidden("You cannot approve or reject your own leave.");
 
         leave.Status = approve ? LeaveStatus.Approved : LeaveStatus.Rejected;
         leave.ApprovedBy = _user.UserId;
@@ -203,8 +216,12 @@ public sealed class OperationsService
                 p.SchoolId == SchoolId && p.Month == request.Month && p.Year == request.Year && !p.IsDeleted, token);
             if (duplicate) throw DomainException.Conflict("Payroll has already been processed for this month.");
 
+            var monthStart = new DateOnly(request.Year, request.Month, 1);
+            var monthEnd = monthStart.AddMonths(1).AddDays(-1);
+
             var employees = await _db.Employees
-                .Where(e => e.SchoolId == SchoolId && e.Status == EmploymentStatus.Active && !e.IsDeleted)
+                .Where(e => e.SchoolId == SchoolId && e.Status == EmploymentStatus.Active && !e.IsDeleted &&
+                            e.JoiningDate <= monthEnd)
                 .ToListAsync(token);
 
             if (employees.Count == 0) throw DomainException.Validation("No active employees to process.");
@@ -214,9 +231,6 @@ public sealed class OperationsService
                 join sc in _db.SalaryComponents on ec.SalaryComponentId equals sc.Id
                 where ec.SchoolId == SchoolId && !ec.IsDeleted && !sc.IsDeleted
                 select new { ec.EmployeeId, sc.Type, ec.Amount, ec.EffectiveFrom, ec.EffectiveTo }).ToListAsync(token);
-
-            var monthStart = new DateOnly(request.Year, request.Month, 1);
-            var monthEnd = monthStart.AddMonths(1).AddDays(-1);
 
             var attendance = await _db.EmployeeAttendances
                 .Where(a => a.SchoolId == SchoolId && a.AttendanceDate >= monthStart && a.AttendanceDate <= monthEnd && !a.IsDeleted)
@@ -240,6 +254,11 @@ public sealed class OperationsService
                     c.EffectiveFrom <= monthEnd && (c.EffectiveTo == null || c.EffectiveTo >= monthStart)).ToList();
 
                 var basic = employee.BasicSalary ?? 0;
+                if (employee.JoiningDate > monthStart)
+                {
+                    var daysEmployed = monthEnd.DayNumber - employee.JoiningDate.DayNumber + 1;
+                    basic = basic * daysEmployed / workingDays;
+                }
                 var gross = basic + employeeComponents.Where(c => c.Type == SalaryComponentType.Earning).Sum(c => c.Amount);
                 var deductions = employeeComponents.Where(c => c.Type == SalaryComponentType.Deduction).Sum(c => c.Amount);
                 var net = gross - deductions;
@@ -350,6 +369,9 @@ public sealed class OperationsService
         var duplicate = await _db.TransportRoutes.AnyAsync(r =>
             r.SchoolId == SchoolId && r.Code == request.Code && !r.IsDeleted, ct);
         if (duplicate) throw DomainException.Conflict("A route with this code already exists.");
+        if (request.VehicleId is not null &&
+            !await _db.Vehicles.AnyAsync(v => v.Id == request.VehicleId && v.SchoolId == SchoolId && !v.IsDeleted, ct))
+            throw DomainException.NotFound("Vehicle");
 
         var route = new TransportRoute
         {
@@ -469,7 +491,7 @@ public sealed class OperationsService
 
         if (borrower is null) throw DomainException.NotFound("Borrower");
 
-        var days = request.LoanDays is < 1 or > 90 ? 14 : request.LoanDays;
+        var days = request.LoanDays is < 1 or > 365 ? 14 : request.LoanDays;
 
         var transaction = new BookTransaction
         {
@@ -504,13 +526,18 @@ public sealed class OperationsService
         if (request.FineAmount is null && issue.DueAtUtc is not null && _clock.UtcNow > issue.DueAtUtc)
         {
             var overdueDays = (int)Math.Ceiling((_clock.UtcNow - issue.DueAtUtc.Value).TotalDays);
-            fine = overdueDays * 5m;
+            fine = overdueDays * Math.Max(0, _library.FinePerDay);
         }
+        if (fine < 0) throw DomainException.Validation("Fine amount cannot be negative.");
 
         issue.ReturnedAtUtc = _clock.UtcNow;
         issue.FineAmount = fine;
         issue.Type = request.IsLost ? BookTransactionType.Lost : BookTransactionType.Return;
-        if (request.IsLost) book.AvailableCopies = Math.Max(0, book.AvailableCopies);
+        if (request.IsLost)
+        {
+            book.TotalCopies = Math.Max(0, book.TotalCopies - 1);
+            book.AvailableCopies = Math.Clamp(book.AvailableCopies, 0, book.TotalCopies);
+        }
         else book.AvailableCopies = Math.Min(book.TotalCopies, book.AvailableCopies + 1);
 
         var borrower = issue.StudentId is not null
@@ -591,6 +618,12 @@ public sealed class OperationsService
             i.Id == request.InventoryItemId && i.SchoolId == SchoolId && !i.IsDeleted, ct)
             ?? throw DomainException.NotFound("Inventory item");
 
+        if (request.Type != StockTransactionType.Adjustment && request.Quantity <= 0)
+            throw DomainException.Validation("Quantity must be greater than zero.");
+        if (request.Quantity < 0)
+            throw DomainException.Validation("Stock cannot go below zero.");
+
+        var transactionQuantity = request.Quantity;
         switch (request.Type)
         {
             case StockTransactionType.Inward:
@@ -603,6 +636,7 @@ public sealed class OperationsService
                 item.Quantity -= request.Quantity;
                 break;
             case StockTransactionType.Adjustment:
+                transactionQuantity = request.Quantity - item.Quantity;
                 item.Quantity = request.Quantity;
                 break;
             default:
@@ -612,7 +646,7 @@ public sealed class OperationsService
         _db.Add(new StockTransaction
         {
             SchoolId = SchoolId, InventoryItemId = item.Id, Type = request.Type,
-            Quantity = request.Quantity, ReferenceNo = request.ReferenceNo,
+            Quantity = transactionQuantity, ReferenceNo = request.ReferenceNo,
             Remarks = request.Remarks, TransactionDate = _clock.Today, RecordedBy = _user.UserId
         });
 

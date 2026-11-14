@@ -79,75 +79,22 @@ export const routes: Routes = [
       {
         path: 'hr',
         canActivate: [permissionGuard('hr.read')],
-        loadComponent: () => import('./pages/directory/directory.component').then(m => m.DirectoryComponent),
-        data: {
-          title: 'People & HR',
-          subtitle: 'Employees, departments, leave and payroll.',
-          endpoint: 'hr/employees',
-          columns: [
-            { key: 'employeeNo', label: 'Employee no.' },
-            { key: 'fullName', label: 'Name' },
-            { key: 'designation', label: 'Designation' },
-            { key: 'department', label: 'Department' },
-            { key: 'phone', label: 'Phone' },
-            { key: 'status', label: 'Status', badge: true }
-          ]
-        }
+        loadComponent: () => import('./pages/operations/hr.component').then(m => m.HrComponent)
       },
       {
         path: 'transport',
         canActivate: [permissionGuard('transport.manage')],
-        loadComponent: () => import('./pages/directory/directory.component').then(m => m.DirectoryComponent),
-        data: {
-          title: 'Transport',
-          subtitle: 'Vehicles, routes, stops and student allocations.',
-          endpoint: 'transport/routes',
-          columns: [
-            { key: 'name', label: 'Route' },
-            { key: 'code', label: 'Code' },
-            { key: 'startPoint', label: 'Start' },
-            { key: 'endPoint', label: 'End' },
-            { key: 'stopCount', label: 'Stops' },
-            { key: 'monthlyFee', label: 'Monthly fee' }
-          ]
-        }
+        loadComponent: () => import('./pages/operations/transport.component').then(m => m.TransportComponent)
       },
       {
         path: 'library',
         canActivate: [permissionGuard('library.manage')],
-        loadComponent: () => import('./pages/directory/directory.component').then(m => m.DirectoryComponent),
-        data: {
-          title: 'Library',
-          subtitle: 'Catalogue, issues, returns and fines.',
-          endpoint: 'library/books',
-          columns: [
-            { key: 'title', label: 'Title' },
-            { key: 'author', label: 'Author' },
-            { key: 'isbn', label: 'ISBN' },
-            { key: 'category', label: 'Category' },
-            { key: 'availableCopies', label: 'Available' },
-            { key: 'totalCopies', label: 'Total' }
-          ]
-        }
+        loadComponent: () => import('./pages/operations/library.component').then(m => m.LibraryComponent)
       },
       {
         path: 'inventory',
         canActivate: [permissionGuard('inventory.manage')],
-        loadComponent: () => import('./pages/directory/directory.component').then(m => m.DirectoryComponent),
-        data: {
-          title: 'Inventory',
-          subtitle: 'Stock, vendors and purchase orders.',
-          endpoint: 'inventory',
-          columns: [
-            { key: 'name', label: 'Item' },
-            { key: 'code', label: 'Code' },
-            { key: 'category', label: 'Category' },
-            { key: 'quantity', label: 'On hand' },
-            { key: 'minimumStock', label: 'Reorder at' },
-            { key: 'unitPrice', label: 'Unit price' },
-            { key: 'isBelowMinimum', label: 'Low stock', badge: true }
-          ]
-        }
+        loadComponent: () => import('./pages/operations/inventory.component').then(m => m.InventoryComponent)
       },
       {
         path: 'settings',

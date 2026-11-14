@@ -161,7 +161,7 @@ public sealed class ClassSubjectDto
 
 public sealed class SaveClassSubjectRequest
 {
-    public int SubjectId { get; set; }
+    [Range(1, int.MaxValue)] public int SubjectId { get; set; }
     public int? TeacherId { get; set; }
 }
 
