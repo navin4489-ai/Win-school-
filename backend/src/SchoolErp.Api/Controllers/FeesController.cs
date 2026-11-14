@@ -25,6 +25,19 @@ public sealed class FeesController : ControllerBase
     public async Task<ActionResult<FeeCategoryDto>> CreateCategory(SaveFeeCategoryRequest request,
         CancellationToken ct) => Ok(await _fees.CreateCategoryAsync(request, ct));
 
+    [HttpPut("categories/{id:int}")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<FeeCategoryDto>> UpdateCategory(int id, SaveFeeCategoryRequest request,
+        CancellationToken ct) => Ok(await _fees.UpdateCategoryAsync(id, request, ct));
+
+    [HttpDelete("categories/{id:int}")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<IActionResult> DeleteCategory(int id, CancellationToken ct)
+    {
+        await _fees.DeleteCategoryAsync(id, ct);
+        return NoContent();
+    }
+
     [HttpGet("structures")]
     [Authorize(Policy = "permission:fees.read")]
     public async Task<ActionResult<List<FeeStructureDto>>> Structures([FromQuery] int? sessionId,
@@ -35,6 +48,44 @@ public sealed class FeesController : ControllerBase
     [Authorize(Policy = "permission:fees.collect")]
     public async Task<ActionResult<FeeStructureDto>> CreateStructure(SaveFeeStructureRequest request,
         CancellationToken ct) => Ok(await _fees.CreateStructureAsync(request, ct));
+
+    [HttpPut("structures/{id:int}")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<FeeStructureDto>> UpdateStructure(int id, SaveFeeStructureRequest request,
+        CancellationToken ct) => Ok(await _fees.UpdateStructureAsync(id, request, ct));
+
+    [HttpPut("structures/{id:int}/active")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<FeeStructureDto>> SetStructureActive(int id, [FromQuery] bool active,
+        CancellationToken ct) => Ok(await _fees.SetStructureActiveAsync(id, active, ct));
+
+    [HttpDelete("structures/{id:int}")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<IActionResult> DeleteStructure(int id, CancellationToken ct)
+    {
+        await _fees.DeleteStructureAsync(id, ct);
+        return NoContent();
+    }
+
+    [HttpPost("assignments/{id:int}/cancel")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<StudentLedgerDto>> CancelAssignment(int id, FeeReasonRequest request,
+        CancellationToken ct) => Ok(await _fees.CancelAssignmentAsync(id, request, ct));
+
+    [HttpPost("assignments/{id:int}/discount")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<StudentLedgerDto>> AddDiscount(int id, FeeDiscountRequest request,
+        CancellationToken ct) => Ok(await _fees.AddDiscountAsync(id, request, ct));
+
+    [HttpPost("installments/{id:int}/waive")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<StudentLedgerDto>> WaiveInstallment(int id, FeeReasonRequest request,
+        CancellationToken ct) => Ok(await _fees.WaiveInstallmentAsync(id, request, ct));
+
+    [HttpPut("installments/{id:int}")]
+    [Authorize(Policy = "permission:fees.collect")]
+    public async Task<ActionResult<StudentLedgerDto>> UpdateInstallment(int id, UpdateInstallmentRequest request,
+        CancellationToken ct) => Ok(await _fees.UpdateInstallmentAsync(id, request, ct));
 
     [HttpPost("assignments")]
     [Authorize(Policy = "permission:fees.collect")]

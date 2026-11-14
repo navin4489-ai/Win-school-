@@ -82,6 +82,143 @@ public sealed class FeeServiceTests
         Assert.Equal("validation_error", error.Code);
     }
 
+    [Fact]
+    public async Task CancelAssignment_IsBlockedOncePaid()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (student, installment) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway());
+
+        await service.RecordPaymentAsync(new RecordPaymentRequest
+        {
+            StudentId = student.Id, FeeInstallmentId = installment.Id, Amount = 200m, Mode = PaymentMode.Cash
+        });
+
+        var error = await Assert.ThrowsAsync<DomainException>(() => service.CancelAssignmentAsync(
+            installment.StudentFeeAssignmentId, new FeeReasonRequest { Reason = "Left school" }));
+
+        Assert.Equal("conflict", error.Code);
+        var assignment = await db.StudentFeeAssignments.AsNoTracking().FirstAsync(a => a.Id == installment.StudentFeeAssignmentId);
+        Assert.True(assignment.IsActive);
+    }
+
+    [Fact]
+    public async Task CancelAssignment_WithoutPayments_RemovesInstallments()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (_, installment) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway());
+
+        var ledger = await service.CancelAssignmentAsync(installment.StudentFeeAssignmentId,
+            new FeeReasonRequest { Reason = "Wrong plan" });
+
+        Assert.Empty(ledger.Installments);
+        Assert.Equal(0m, ledger.Balance);
+        Assert.False(Assert.Single(ledger.Assignments).IsActive);
+    }
+
+    [Fact]
+    public async Task WaiveInstallment_ReducesNetAndMarksWaived()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (student, installment) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway());
+
+        await service.RecordPaymentAsync(new RecordPaymentRequest
+        {
+            StudentId = student.Id, FeeInstallmentId = installment.Id, Amount = 300m, Mode = PaymentMode.Cash
+        });
+
+        var ledger = await service.WaiveInstallmentAsync(installment.Id, new FeeReasonRequest { Reason = "Hardship" });
+
+        var saved = await db.FeeInstallments.AsNoTracking().FirstAsync(i => i.Id == installment.Id);
+        Assert.Equal(InstallmentStatus.Waived, saved.Status);
+        Assert.Equal(300m, saved.PaidAmount);
+        var assignment = await db.StudentFeeAssignments.AsNoTracking().FirstAsync(a => a.Id == installment.StudentFeeAssignmentId);
+        Assert.Equal(300m, assignment.NetAmount);
+        Assert.Equal(0m, ledger.Balance);
+
+        await Assert.ThrowsAsync<DomainException>(() =>
+            service.WaiveInstallmentAsync(installment.Id, new FeeReasonRequest { Reason = "Again" }));
+    }
+
+    [Fact]
+    public async Task UpdateInstallment_RejectsAmountBelowPaid()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (student, installment) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway());
+
+        await service.RecordPaymentAsync(new RecordPaymentRequest
+        {
+            StudentId = student.Id, FeeInstallmentId = installment.Id, Amount = 600m, Mode = PaymentMode.Cash
+        });
+
+        var error = await Assert.ThrowsAsync<DomainException>(() => service.UpdateInstallmentAsync(installment.Id,
+            new UpdateInstallmentRequest { Name = "Term 1", DueDate = clock.Today.AddDays(10), Amount = 500m }));
+        Assert.Equal("validation_error", error.Code);
+
+        await service.UpdateInstallmentAsync(installment.Id,
+            new UpdateInstallmentRequest { Name = "Term 1", DueDate = clock.Today.AddDays(20), Amount = 600m });
+
+        var saved = await db.FeeInstallments.AsNoTracking().FirstAsync(i => i.Id == installment.Id);
+        Assert.Equal(600m, saved.Amount);
+        Assert.Equal(InstallmentStatus.Paid, saved.Status);
+        var assignment = await db.StudentFeeAssignments.AsNoTracking().FirstAsync(a => a.Id == installment.StudentFeeAssignmentId);
+        Assert.Equal(600m, assignment.NetAmount);
+    }
+
+    [Fact]
+    public async Task AddDiscount_ReducesLatestInstallmentsFirst()
+    {
+        var clock = new TestClock();
+        var user = new TestCurrentUser { Permissions = new[] { Permissions.FeesCollect, Permissions.FeesRead } };
+        await using var db = TestDb.Create(user, clock);
+        var (_, first) = await SeedAsync(db, user, clock);
+        var service = new FeeService(db, new UnitOfWork(db), user, clock, new FakeGateway());
+
+        var assignment = await db.StudentFeeAssignments.FirstAsync(a => a.Id == first.StudentFeeAssignmentId);
+        assignment.TotalAmount = 2000m;
+        assignment.NetAmount = 2000m;
+        var second = new FeeInstallment
+        {
+            SchoolId = first.SchoolId, StudentFeeAssignmentId = assignment.Id, Name = "Term 2",
+            DueDate = clock.Today.AddDays(40), Amount = 500m, Status = InstallmentStatus.Pending
+        };
+        var third = new FeeInstallment
+        {
+            SchoolId = first.SchoolId, StudentFeeAssignmentId = assignment.Id, Name = "Term 3",
+            DueDate = clock.Today.AddDays(70), Amount = 500m, Status = InstallmentStatus.Pending
+        };
+        db.AddRange(second, third);
+        await db.SaveChangesAsync();
+
+        var tooMuch = await Assert.ThrowsAsync<DomainException>(() => service.AddDiscountAsync(assignment.Id,
+            new FeeDiscountRequest { Amount = 2500m, Reason = "Too much" }));
+        Assert.Equal("validation_error", tooMuch.Code);
+
+        var ledger = await service.AddDiscountAsync(assignment.Id, new FeeDiscountRequest { Amount = 700m, Reason = "Sibling" });
+
+        var rows = await db.FeeInstallments.AsNoTracking()
+            .Where(i => i.StudentFeeAssignmentId == assignment.Id).ToDictionaryAsync(i => i.Name);
+        Assert.Equal(1000m, rows["Term 1"].Amount);
+        Assert.Equal(300m, rows["Term 2"].Amount);
+        Assert.Equal(0m, rows["Term 3"].Amount);
+
+        var saved = await db.StudentFeeAssignments.AsNoTracking().FirstAsync(a => a.Id == assignment.Id);
+        Assert.Equal(700m, saved.DiscountAmount);
+        Assert.Equal(1300m, saved.NetAmount);
+        Assert.Equal(1300m, ledger.Balance);
+    }
+
     private static async Task<(Student Student, FeeInstallment Installment)> SeedAsync(AppDbContext db,
         TestCurrentUser user, TestClock clock)
     {

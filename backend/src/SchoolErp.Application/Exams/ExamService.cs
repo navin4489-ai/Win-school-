@@ -95,6 +95,54 @@ public sealed class ExamService
         };
     }
 
+    public async Task<ExamDto> UpdateAsync(int examId, UpdateExamRequest request, CancellationToken ct = default)
+    {
+        if (request.EndDate < request.StartDate)
+            throw DomainException.Validation("Exam end date must be on or after the start date.");
+
+        var exam = await GetExamAsync(examId, ct);
+        await EnsureEditableAsync(exam, "edited", ct);
+
+        exam.Name = request.Name.Trim();
+        exam.ExamType = request.ExamType;
+        exam.StartDate = request.StartDate;
+        exam.EndDate = request.EndDate;
+        exam.IsRankEnabled = request.IsRankEnabled;
+        await _uow.SaveChangesAsync(ct);
+
+        var subjectCount = await _db.ExamSubjects.CountAsync(s => s.ExaminationId == exam.Id && !s.IsDeleted, ct);
+        return new ExamDto
+        {
+            Id = exam.Id, AcademicSessionId = exam.AcademicSessionId, Name = exam.Name,
+            ExamType = exam.ExamType, StartDate = exam.StartDate, EndDate = exam.EndDate,
+            Status = exam.Status, IsRankEnabled = exam.IsRankEnabled, SubjectCount = subjectCount
+        };
+    }
+
+    public async Task DeleteAsync(int examId, CancellationToken ct = default)
+    {
+        var exam = await GetExamAsync(examId, ct);
+        await EnsureEditableAsync(exam, "deleted", ct);
+
+        var subjects = await _db.ExamSubjects
+            .Where(s => s.ExaminationId == exam.Id && s.SchoolId == SchoolId && !s.IsDeleted)
+            .ToListAsync(ct);
+        foreach (var subject in subjects) subject.IsDeleted = true;
+        exam.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
+    }
+
+    private async Task EnsureEditableAsync(Examination exam, string action, CancellationToken ct)
+    {
+        if (exam.Status != ExamStatus.Draft || exam.PublishedAtUtc is not null)
+            throw DomainException.Conflict($"Only a draft exam can be {action}. This exam is {exam.Status}.");
+
+        var hasMarks = await _db.StudentMarks.AnyAsync(m =>
+            m.ExaminationId == exam.Id && m.SchoolId == SchoolId && !m.IsDeleted, ct);
+        if (hasMarks)
+            throw DomainException.Conflict($"Marks have already been entered for this exam, so it cannot be {action}.");
+    }
+
     public async Task<List<ExamSubjectDto>> GetSubjectsAsync(int examId, CancellationToken ct = default)
     {
         var exam = await GetExamAsync(examId, ct);

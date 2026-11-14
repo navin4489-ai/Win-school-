@@ -23,13 +23,17 @@ public sealed class HomeworkService
     private int SchoolId => _user.SchoolId ?? throw DomainException.Unauthorized();
 
     public async Task<List<HomeworkDto>> ListAsync(int? classId, int? sectionId, int? subjectId,
-        CancellationToken ct = default)
+        bool includeUnpublished = false, CancellationToken ct = default)
     {
+        // Drafts are only visible to staff who can manage homework; never to students or parents.
+        var showDrafts = includeUnpublished && _user.HasPermission(Permissions.HomeworkManage) &&
+                         !_user.IsInRole(RoleCodes.Student) && !_user.IsInRole(RoleCodes.Parent);
+
         var query =
             from h in _db.Homework
             join subject in _db.Subjects on h.SubjectId equals subject.Id
             join teacher in _db.Employees on h.EmployeeId equals teacher.Id
-            where h.SchoolId == SchoolId && !h.IsDeleted && h.IsPublished
+            where h.SchoolId == SchoolId && !h.IsDeleted && (showDrafts || h.IsPublished)
             select new { h, SubjectName = subject.Name, TeacherName = teacher.FirstName + " " + teacher.LastName };
 
         if (classId is > 0) query = query.Where(x => x.h.ClassId == classId);
@@ -62,8 +66,68 @@ public sealed class HomeworkService
             SubjectName = x.SubjectName, TeacherName = x.TeacherName, Title = x.h.Title,
             Description = x.h.Description, AttachmentUrl = x.h.AttachmentUrl, DueAtUtc = x.h.DueAtUtc,
             MaxMarks = x.h.MaxMarks, SubmissionCount = counts.GetValueOrDefault(x.h.Id),
-            IsOverdue = x.h.DueAtUtc < _clock.UtcNow
+            IsOverdue = x.h.DueAtUtc < _clock.UtcNow, IsPublished = x.h.IsPublished, EmployeeId = x.h.EmployeeId
         }).ToList();
+    }
+
+    public async Task<HomeworkDto> UpdateAsync(int id, UpdateHomeworkRequest request, CancellationToken ct = default)
+    {
+        var homework = await _db.Homework.FirstOrDefaultAsync(h => h.Id == id && h.SchoolId == SchoolId && !h.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Homework");
+        EnsureCanManage(homework);
+
+        if (request.DueAtUtc != homework.DueAtUtc && request.DueAtUtc <= _clock.UtcNow)
+            throw DomainException.Validation("Homework due date must be in the future.");
+
+        if (request.MaxMarks is not null)
+        {
+            var highest = await _db.AssignmentSubmissions
+                .Where(s => s.HomeworkId == homework.Id && s.SchoolId == SchoolId && !s.IsDeleted && s.Marks != null)
+                .MaxAsync(s => s.Marks, ct);
+            if (highest is not null && highest > request.MaxMarks)
+                throw DomainException.Validation($"Max marks cannot be lower than an awarded grade ({highest}).");
+        }
+
+        homework.Title = request.Title.Trim();
+        homework.Description = request.Description;
+        homework.AttachmentUrl = request.AttachmentUrl;
+        homework.DueAtUtc = request.DueAtUtc;
+        homework.MaxMarks = request.MaxMarks;
+        homework.IsPublished = request.IsPublished;
+        await _uow.SaveChangesAsync(ct);
+
+        var subjectName = await _db.Subjects.Where(s => s.Id == homework.SubjectId)
+            .Select(s => s.Name).FirstOrDefaultAsync(ct) ?? string.Empty;
+        var teacherName = await _db.Employees.Where(e => e.Id == homework.EmployeeId)
+            .Select(e => e.FirstName + " " + e.LastName).FirstOrDefaultAsync(ct) ?? string.Empty;
+        var submissions = await _db.AssignmentSubmissions.CountAsync(s => s.HomeworkId == homework.Id && !s.IsDeleted, ct);
+
+        return new HomeworkDto
+        {
+            Id = homework.Id, ClassId = homework.ClassId, SectionId = homework.SectionId,
+            SubjectName = subjectName, TeacherName = teacherName, Title = homework.Title,
+            Description = homework.Description, AttachmentUrl = homework.AttachmentUrl,
+            DueAtUtc = homework.DueAtUtc, MaxMarks = homework.MaxMarks, SubmissionCount = submissions,
+            IsOverdue = homework.DueAtUtc < _clock.UtcNow, IsPublished = homework.IsPublished,
+            EmployeeId = homework.EmployeeId
+        };
+    }
+
+    public async Task DeleteAsync(int id, CancellationToken ct = default)
+    {
+        var homework = await _db.Homework.FirstOrDefaultAsync(h => h.Id == id && h.SchoolId == SchoolId && !h.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Homework");
+        EnsureCanManage(homework);
+
+        var submissions = await _db.AssignmentSubmissions
+            .Where(s => s.HomeworkId == homework.Id && s.SchoolId == SchoolId && !s.IsDeleted)
+            .ToListAsync(ct);
+        if (submissions.Any(s => s.Marks is not null))
+            throw DomainException.Conflict("This homework has graded submissions and cannot be deleted.");
+
+        foreach (var submission in submissions) submission.IsDeleted = true;
+        homework.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
     }
 
     public async Task<HomeworkDto> CreateAsync(SaveHomeworkRequest request, CancellationToken ct = default)
@@ -104,7 +168,8 @@ public sealed class HomeworkService
             Id = homework.Id, ClassId = homework.ClassId, SectionId = homework.SectionId,
             SubjectName = subject.Name, TeacherName = string.Empty, Title = homework.Title,
             Description = homework.Description, AttachmentUrl = homework.AttachmentUrl,
-            DueAtUtc = homework.DueAtUtc, MaxMarks = homework.MaxMarks
+            DueAtUtc = homework.DueAtUtc, MaxMarks = homework.MaxMarks,
+            IsPublished = homework.IsPublished, EmployeeId = homework.EmployeeId
         };
     }
 
@@ -211,7 +276,7 @@ public sealed class HomeworkService
 
         if ((_user.IsInRole(RoleCodes.Teacher) || _user.IsInRole(RoleCodes.ClassCoordinator)) &&
             homework.EmployeeId != _user.EmployeeId)
-            throw DomainException.Forbidden("You can only manage submissions for homework you assigned.");
+            throw DomainException.Forbidden("You can only manage homework you assigned.");
     }
 
     private async Task<int> ResolveTeacherAsync(int classId, int sectionId, int subjectId, CancellationToken ct)

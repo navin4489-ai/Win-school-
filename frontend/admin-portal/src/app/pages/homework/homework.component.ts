@@ -11,7 +11,7 @@ interface Subject { id: number; name: string; code: string; }
 interface Homework {
   id: number; classId: number; sectionId: number; subjectName: string; teacherName: string;
   title: string; description?: string | null; attachmentUrl?: string | null; dueAtUtc: string;
-  maxMarks?: number | null; submissionCount: number; isOverdue: boolean;
+  maxMarks?: number | null; submissionCount: number; isOverdue: boolean; isPublished: boolean; employeeId: number;
 }
 interface Submission {
   id: number; studentName: string; submittedAtUtc: string; fileUrl?: string | null; remarks?: string | null;
@@ -33,7 +33,7 @@ interface Submission {
         </div>
         <div class="toolbar">
           @if (canManage()) {
-            <button class="btn btn-primary btn-sm" (click)="formOpen.set(!formOpen())">{{ formOpen() ? 'Close' : 'Add homework' }}</button>
+            <button class="btn btn-primary btn-sm" (click)="toggleForm()">{{ formOpen() ? 'Close' : 'Add homework' }}</button>
           }
           <button class="btn btn-ghost btn-sm" (click)="load()">Refresh</button>
         </div>
@@ -44,9 +44,12 @@ interface Submission {
 
       @if (formOpen() && canManage()) {
         <section class="card">
-          <div class="card-header"><h3>Add homework</h3></div>
+          <div class="card-header"><h3>{{ editing() ? 'Edit homework' : 'Add homework' }}</h3></div>
           <div class="card-body">
             <form class="form-grid" [formGroup]="form" (ngSubmit)="save()">
+              @if (editing(); as e) {
+                <div class="full small muted">{{ placement(e) }} - {{ e.subjectName }} (class, section and subject cannot be changed)</div>
+              } @else {
               <label class="field"><span>Class *</span>
                 <select formControlName="classId" (change)="classChanged()">
                   <option value="">Select class</option>
@@ -65,6 +68,7 @@ interface Submission {
                   @for (s of subjects(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
                 </select>
               </label>
+              }
               <label class="field"><span>Title *</span><input formControlName="title" placeholder="e.g. Chapter 3 exercises" /></label>
               <label class="field full"><span>Description</span>
                 <textarea formControlName="description" rows="3" placeholder="What students need to do"></textarea>
@@ -74,7 +78,8 @@ interface Submission {
               <label class="field"><span>Attachment link</span><input formControlName="attachmentUrl" placeholder="https://… (optional)" /></label>
               <label class="row" style="gap:8px"><input type="checkbox" formControlName="isPublished" /><span>Publish now (visible to students and parents)</span></label>
               <div class="full row">
-                <button class="btn btn-primary" type="submit" [disabled]="form.invalid || saving()">{{ saving() ? 'Saving…' : 'Post homework' }}</button>
+                <button class="btn btn-primary" type="submit" [disabled]="form.invalid || saving()">{{ saving() ? 'Saving…' : (editing() ? 'Save changes' : 'Post homework') }}</button>
+                @if (editing()) { <button class="btn btn-ghost" type="button" [disabled]="saving()" (click)="cancelEdit()">Cancel</button> }
               </div>
             </form>
           </div>
@@ -95,7 +100,7 @@ interface Submission {
                 @for (h of items(); track h.id) {
                   <tr>
                     <td>
-                      <div class="primary">{{ h.title }}</div>
+                      <div class="primary">{{ h.title }} @if (!h.isPublished) { <span class="badge amber">Draft</span> }</div>
                       @if (h.description) { <div class="small muted">{{ h.description }}</div> }
                       @if (h.attachmentUrl) { <a class="small" [href]="h.attachmentUrl" target="_blank" rel="noopener">Attachment</a> }
                     </td>
@@ -110,6 +115,13 @@ interface Submission {
                     <td>
                       @if (canManage()) {
                         <button class="btn btn-ghost btn-sm" (click)="toggleSubmissions(h)">{{ openId() === h.id ? 'Hide' : 'Submissions' }}</button>
+                        @if (canEdit(h)) {
+                          @if (!h.isPublished) {
+                            <button class="btn btn-primary btn-sm" [disabled]="saving()" (click)="publish(h)">Publish</button>
+                          }
+                          <button class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="edit(h)" [attr.aria-label]="'Edit ' + h.title">Edit</button>
+                          <button class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="remove(h)" [attr.aria-label]="'Delete ' + h.title">Delete</button>
+                        }
                       } @else if (isStudent()) {
                         <button class="btn btn-ghost btn-sm" (click)="openId.set(openId() === h.id ? null : h.id)">Submit</button>
                       }
@@ -158,6 +170,8 @@ export class HomeworkComponent implements OnInit {
 
   readonly canManage = computed(() => this.auth.has('homework.manage'));
   readonly isStudent = computed(() => this.auth.user()?.roleCode === 'Student');
+  readonly isAdmin = computed(() => ['Principal', 'Administrator', 'SchoolOwner', 'SuperAdmin'].includes(this.auth.user()?.roleCode ?? ''));
+  readonly editing = signal<Homework | null>(null);
 
   readonly items = signal<Homework[]>([]);
   readonly classes = signal<ClassRoom[]>([]);
@@ -202,7 +216,7 @@ export class HomeworkComponent implements OnInit {
 
   load(): void {
     this.loading.set(true);
-    this.api.get<Homework[]>('homework').subscribe({
+    this.api.get<Homework[]>('homework', { includeUnpublished: this.canManage() || undefined }).subscribe({
       next: items => { this.items.set(items); this.loading.set(false); },
       error: r => { this.error.set(readError(r)); this.loading.set(false); }
     });
@@ -228,6 +242,8 @@ export class HomeworkComponent implements OnInit {
 
   save(): void {
     if (this.form.invalid || this.saving()) return;
+    const editing = this.editing();
+    if (editing) { this.saveEdit(editing); return; }
     const raw = this.form.getRawValue();
     const body = {
       classId: Number(raw.classId), sectionId: Number(raw.sectionId), subjectId: Number(raw.subjectId),
@@ -247,6 +263,87 @@ export class HomeworkComponent implements OnInit {
           dueAt: defaultDue(), maxMarks: '', attachmentUrl: '', isPublished: true });
         this.load();
       },
+      error: r => { this.saving.set(false); this.message.set(null); this.error.set(readError(r)); }
+    });
+  }
+
+  toggleForm(): void {
+    if (this.formOpen()) { this.cancelEdit(); return; }
+    this.formOpen.set(true);
+  }
+
+  canEdit(h: Homework): boolean {
+    if (!this.canManage()) return false;
+    if (this.isAdmin()) return true;
+    const employeeId = this.auth.user()?.employeeId;
+    return employeeId == null || employeeId === h.employeeId;
+  }
+
+  edit(h: Homework): void {
+    this.editing.set(h);
+    this.formOpen.set(true);
+    this.form.controls.classId.disable();
+    this.form.controls.sectionId.disable();
+    this.form.controls.subjectId.disable();
+    this.form.reset({
+      classId: String(h.classId), sectionId: String(h.sectionId), subjectId: '',
+      title: h.title, description: h.description ?? '', dueAt: toLocalInput(this.asUtc(h.dueAtUtc)),
+      maxMarks: h.maxMarks == null ? '' : String(h.maxMarks), attachmentUrl: h.attachmentUrl ?? '',
+      isPublished: h.isPublished
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  cancelEdit(): void {
+    this.editing.set(null);
+    this.formOpen.set(false);
+    this.form.controls.classId.enable();
+    this.form.controls.sectionId.enable();
+    this.form.controls.subjectId.enable();
+    this.form.reset({ classId: '', sectionId: '', subjectId: '', title: '', description: '',
+      dueAt: defaultDue(), maxMarks: '', attachmentUrl: '', isPublished: true });
+  }
+
+  publish(h: Homework): void {
+    this.update(h, {
+      title: h.title, description: h.description ?? null, attachmentUrl: h.attachmentUrl ?? null,
+      dueAtUtc: this.asUtc(h.dueAtUtc), maxMarks: h.maxMarks ?? null, isPublished: true
+    }, `"${h.title}" published.`);
+  }
+
+  remove(h: Homework): void {
+    if (this.saving() || !window.confirm(`Delete homework "${h.title}"? Ungraded submissions will also be removed.`)) return;
+    this.saving.set(true);
+    this.error.set(null);
+    this.api.delete(`homework/${h.id}`).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.message.set(`Homework "${h.title}" deleted.`);
+        if (this.openId() === h.id) this.openId.set(null);
+        if (this.editing()?.id === h.id) this.cancelEdit();
+        this.load();
+      },
+      error: r => { this.saving.set(false); this.message.set(null); this.error.set(readError(r)); }
+    });
+  }
+
+  private saveEdit(h: Homework): void {
+    const raw = this.form.getRawValue();
+    this.update(h, {
+      title: raw.title.trim(), description: raw.description || null,
+      attachmentUrl: raw.attachmentUrl.trim() || null,
+      dueAtUtc: new Date(raw.dueAt).toISOString(),
+      maxMarks: raw.maxMarks === '' || raw.maxMarks == null ? null : Number(raw.maxMarks),
+      isPublished: raw.isPublished
+    }, `Homework "${raw.title.trim()}" updated.`, () => this.cancelEdit());
+  }
+
+  private update(h: Homework, body: Record<string, unknown>, success: string, after?: () => void): void {
+    if (this.saving()) return;
+    this.saving.set(true);
+    this.error.set(null);
+    this.api.put<Homework>(`homework/${h.id}`, body).subscribe({
+      next: () => { this.saving.set(false); this.message.set(success); after?.(); this.load(); },
       error: r => { this.saving.set(false); this.message.set(null); this.error.set(readError(r)); }
     });
   }
@@ -290,6 +387,12 @@ export class HomeworkComponent implements OnInit {
       error: r => { this.saving.set(false); this.error.set(readError(r)); }
     });
   }
+}
+
+function toLocalInput(value: string): string {
+  const d = new Date(value);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function defaultDue(): string {

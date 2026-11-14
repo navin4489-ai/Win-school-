@@ -14,7 +14,7 @@ interface ClassRoom { id: number; name: string; }
 interface PlanItem { feeCategoryId: number; categoryName: string; amount: number; frequency: Frequency; }
 interface Plan {
   id: number; academicSessionId: number; sessionName: string; classId: number; className: string;
-  name: string; totalAmount: number; isActive: boolean; items: PlanItem[];
+  name: string; totalAmount: number; isActive: boolean; isAssigned: boolean; items: PlanItem[];
 }
 interface StudentRow { id: number; admissionNo: string; fullName: string; className: string; sectionName: string; }
 interface Installment { name: string; dueDate: string; amount: number; }
@@ -42,9 +42,25 @@ interface Installment { name: string; dueDate: string; amount: number; }
       <section class="card">
         <div class="card-header"><h3>1. Fee heads</h3></div>
         <div class="card-body">
-          <div class="row" style="flex-wrap:wrap;gap:6px;margin-bottom:12px">
+          <div class="list" style="margin-bottom:12px">
             @for (c of categories(); track c.id) {
-              <span class="badge" [class.teal]="c.isRecurring">{{ c.name }} ({{ c.code }}){{ c.isRecurring ? ' · recurring' : '' }}</span>
+              <div class="list-item">
+                @if (editCatId() === c.id) {
+                  <div class="row" style="gap:8px;flex-wrap:wrap;flex:1">
+                    <input [(ngModel)]="editCatName" aria-label="Fee head name" style="width:100%;max-width:200px" />
+                    <input [(ngModel)]="editCatCode" aria-label="Fee head code" style="width:100%;max-width:140px" />
+                    <label class="row" style="gap:6px"><input type="checkbox" [(ngModel)]="editCatRecurring" /> Recurring</label>
+                  </div>
+                  <button class="btn btn-primary btn-sm" (click)="saveCategory(c)" [disabled]="!editCatName.trim() || !editCatCode.trim() || saving()">Save</button>
+                  <button class="btn btn-ghost btn-sm" (click)="editCatId.set(0)" [disabled]="saving()">Cancel</button>
+                } @else {
+                  <div style="flex:1">
+                    <span class="badge" [class.teal]="c.isRecurring">{{ c.name }} ({{ c.code }}){{ c.isRecurring ? ' · recurring' : '' }}</span>
+                  </div>
+                  <button class="btn btn-ghost btn-sm" (click)="startEditCategory(c)" [disabled]="saving()">Edit</button>
+                  <button class="btn btn-ghost btn-sm" (click)="deleteCategory(c)" [disabled]="saving()">Delete</button>
+                }
+              </div>
             } @empty { <span class="small muted">No fee heads yet. Add e.g. Tuition fee, Annual fee, Admission fee.</span> }
           </div>
           <div class="row" style="gap:8px;flex-wrap:wrap">
@@ -107,20 +123,34 @@ interface Installment { name: string; dueDate: string; amount: number; }
           <div class="row" style="gap:10px;margin-top:10px">
             <button class="btn btn-ghost btn-sm" (click)="planLines.push(newLine())">+ Add fee head line</button>
             <strong>Total for the year: {{ planTotal() | currency:'INR':'symbol':'1.0-0' }}</strong>
-            <button class="btn btn-primary btn-sm" (click)="savePlan()" [disabled]="!canSavePlan() || saving()">Save fee plan</button>
+            <button class="btn btn-primary btn-sm" (click)="savePlan()" [disabled]="!canSavePlan() || saving()">{{ editPlanId ? 'Update fee plan' : 'Save fee plan' }}</button>
+            @if (editPlanId) { <button class="btn btn-ghost btn-sm" (click)="cancelEditPlan()" [disabled]="saving()">Cancel edit</button> }
           </div>
 
           <div class="table-wrap" style="margin-top:16px">
             <table>
-              <thead><tr><th>Plan</th><th>Class</th><th>Session</th><th>Fee heads</th><th>Total</th></tr></thead>
+              <thead><tr><th>Plan</th><th>Class</th><th>Session</th><th>Fee heads</th><th>Total</th><th>Status</th><th></th></tr></thead>
               <tbody>
                 @for (p of plans(); track p.id) {
                   <tr>
                     <td class="primary">{{ p.name }}</td><td>{{ p.className }}</td><td>{{ p.sessionName }}</td>
                     <td class="small">@for (i of p.items; track i.feeCategoryId) { {{ i.categoryName }}: {{ i.amount | currency:'INR':'symbol':'1.0-0' }}<br /> }</td>
                     <td><strong>{{ p.totalAmount | currency:'INR':'symbol':'1.0-0' }}</strong></td>
+                    <td>
+                      <span class="badge" [class.green]="p.isActive">{{ p.isActive ? 'Active' : 'Inactive' }}</span>
+                      @if (p.isAssigned) { <div class="small muted">Assigned</div> }
+                    </td>
+                    <td>
+                      <div class="row" style="gap:6px;flex-wrap:wrap">
+                        <button class="btn btn-ghost btn-sm" (click)="setPlanActive(p, !p.isActive)" [disabled]="saving()">{{ p.isActive ? 'Deactivate' : 'Activate' }}</button>
+                        @if (!p.isAssigned) {
+                          <button class="btn btn-ghost btn-sm" (click)="startEditPlan(p)" [disabled]="saving()">Edit</button>
+                          <button class="btn btn-ghost btn-sm" (click)="deletePlan(p)" [disabled]="saving()">Delete</button>
+                        }
+                      </div>
+                    </td>
                   </tr>
-                } @empty { <tr><td colspan="5" class="muted">No fee plans yet.</td></tr> }
+                } @empty { <tr><td colspan="7" class="muted">No fee plans yet.</td></tr> }
               </tbody>
             </table>
           </div>
@@ -222,6 +252,9 @@ export class FeeSetupComponent implements OnInit {
   readonly assignPlan = signal(0);
 
   catName = ''; catCode = ''; catRecurring = false;
+  readonly editCatId = signal(0);
+  editCatName = ''; editCatCode = ''; editCatRecurring = false;
+  editPlanId = 0;
   planName = ''; planClassId = 0; planSessionId = 0;
   planLines: { feeCategoryId: number; amount: number; frequency: Frequency }[] = [this.newLine()];
   search = '';
@@ -278,10 +311,91 @@ export class FeeSetupComponent implements OnInit {
       items: this.planLines.map(l => ({ feeCategoryId: l.feeCategoryId, amount: this.yearly(l), frequency: l.frequency, dueDay: 10 }))
     };
     this.saving.set(true);
-    this.api.post('fees/structures', body).subscribe({
-      next: () => { this.saving.set(false); this.ok(`Fee plan "${body.name}" saved.`); this.planName = ''; this.planLines = [this.newLine()]; this.loadPlans(); },
+    const request = this.editPlanId
+      ? this.api.put(`fees/structures/${this.editPlanId}`, body)
+      : this.api.post('fees/structures', body);
+    const verb = this.editPlanId ? 'updated' : 'saved';
+    request.subscribe({
+      next: () => { this.saving.set(false); this.ok(`Fee plan "${body.name}" ${verb}.`); this.resetPlanForm(); this.loadPlans(); },
       error: r => { this.saving.set(false); this.fail(r); }
     });
+  }
+
+  startEditCategory(c: Category): void {
+    this.editCatId.set(c.id);
+    this.editCatName = c.name;
+    this.editCatCode = c.code;
+    this.editCatRecurring = c.isRecurring;
+  }
+
+  saveCategory(c: Category): void {
+    if (this.saving() || !this.editCatName.trim() || !this.editCatCode.trim()) return;
+    this.saving.set(true);
+    const body = { name: this.editCatName.trim(), code: this.editCatCode.trim().toUpperCase(), isRecurring: this.editCatRecurring };
+    this.api.put(`fees/categories/${c.id}`, body).subscribe({
+      next: () => { this.saving.set(false); this.editCatId.set(0); this.ok(`Fee head "${body.name}" updated.`); this.loadCategories(); this.loadPlans(); },
+      error: r => { this.saving.set(false); this.fail(r); }
+    });
+  }
+
+  deleteCategory(c: Category): void {
+    if (this.saving() || !confirm(`Delete fee head "${c.name}"? This cannot be undone.`)) return;
+    this.saving.set(true);
+    this.api.delete(`fees/categories/${c.id}`).subscribe({
+      next: () => { this.saving.set(false); this.ok(`Fee head "${c.name}" deleted.`); this.loadCategories(); },
+      error: r => { this.saving.set(false); this.fail(r); }
+    });
+  }
+
+  setPlanActive(p: Plan, active: boolean): void {
+    if (this.saving()) return;
+    if (!active && !confirm(`Deactivate "${p.name}"? It can no longer be assigned to new students. Existing assignments are not affected.`)) return;
+    this.saving.set(true);
+    this.api.put(`fees/structures/${p.id}/active?active=${active}`).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.ok(`Fee plan "${p.name}" ${active ? 'activated' : 'deactivated'}.`);
+        if (!active && this.assignPlanId === p.id) { this.assignPlanId = 0; this.installments = []; }
+        this.loadPlans();
+      },
+      error: r => { this.saving.set(false); this.fail(r); }
+    });
+  }
+
+  startEditPlan(p: Plan): void {
+    this.editPlanId = p.id;
+    this.planName = p.name;
+    this.planClassId = p.classId;
+    this.planSessionId = p.academicSessionId;
+    this.planLines = p.items.map(i => ({
+      feeCategoryId: i.feeCategoryId,
+      frequency: i.frequency,
+      amount: round(i.amount / this.periods(i.frequency))
+    }));
+    if (!this.planLines.length) this.planLines = [this.newLine()];
+    this.message.set(null);
+  }
+
+  cancelEditPlan(): void { this.resetPlanForm(); }
+
+  deletePlan(p: Plan): void {
+    if (this.saving() || !confirm(`Delete fee plan "${p.name}"? This cannot be undone.`)) return;
+    this.saving.set(true);
+    this.api.delete(`fees/structures/${p.id}`).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.ok(`Fee plan "${p.name}" deleted.`);
+        if (this.editPlanId === p.id) this.resetPlanForm();
+        this.loadPlans();
+      },
+      error: r => { this.saving.set(false); this.fail(r); this.loadPlans(); }
+    });
+  }
+
+  private resetPlanForm(): void {
+    this.editPlanId = 0;
+    this.planName = '';
+    this.planLines = [this.newLine()];
   }
 
   findStudents(): void {

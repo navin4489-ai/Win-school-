@@ -26,6 +26,15 @@ public sealed class SaveExamRequest
     public bool IsRankEnabled { get; set; }
 }
 
+public sealed class UpdateExamRequest
+{
+    [Required, MaxLength(120)] public string Name { get; set; } = string.Empty;
+    public ExamType ExamType { get; set; }
+    public DateOnly StartDate { get; set; }
+    public DateOnly EndDate { get; set; }
+    public bool IsRankEnabled { get; set; }
+}
+
 public sealed class ExamSubjectDto
 {
     public int Id { get; init; }

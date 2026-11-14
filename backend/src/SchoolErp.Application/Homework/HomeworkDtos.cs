@@ -16,6 +16,8 @@ public sealed class HomeworkDto
     public decimal? MaxMarks { get; init; }
     public int SubmissionCount { get; init; }
     public bool IsOverdue { get; init; }
+    public bool IsPublished { get; init; }
+    public int EmployeeId { get; init; }
 }
 
 public sealed class SaveHomeworkRequest
@@ -23,6 +25,16 @@ public sealed class SaveHomeworkRequest
     [Range(1, int.MaxValue)] public int ClassId { get; set; }
     [Range(1, int.MaxValue)] public int SectionId { get; set; }
     [Range(1, int.MaxValue)] public int SubjectId { get; set; }
+    [Required, MaxLength(200)] public string Title { get; set; } = string.Empty;
+    [MaxLength(4000)] public string? Description { get; set; }
+    [Url, MaxLength(500)] public string? AttachmentUrl { get; set; }
+    public DateTime DueAtUtc { get; set; }
+    [Range(0, 1000)] public decimal? MaxMarks { get; set; }
+    public bool IsPublished { get; set; } = true;
+}
+
+public sealed class UpdateHomeworkRequest
+{
     [Required, MaxLength(200)] public string Title { get; set; } = string.Empty;
     [MaxLength(4000)] public string? Description { get; set; }
     [Url, MaxLength(500)] public string? AttachmentUrl { get; set; }

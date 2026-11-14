@@ -15,13 +15,27 @@ public sealed class HomeworkController : ControllerBase
 
     [HttpGet]
     public async Task<ActionResult<List<HomeworkDto>>> List([FromQuery] int? classId,
-        [FromQuery] int? sectionId, [FromQuery] int? subjectId, CancellationToken ct) =>
-        Ok(await _homework.ListAsync(classId, sectionId, subjectId, ct));
+        [FromQuery] int? sectionId, [FromQuery] int? subjectId, [FromQuery] bool includeUnpublished,
+        CancellationToken ct) =>
+        Ok(await _homework.ListAsync(classId, sectionId, subjectId, includeUnpublished, ct));
 
     [HttpPost]
     [Authorize(Policy = "permission:homework.manage")]
     public async Task<ActionResult<HomeworkDto>> Create(SaveHomeworkRequest request, CancellationToken ct) =>
         Ok(await _homework.CreateAsync(request, ct));
+
+    [HttpPut("{homeworkId:int}")]
+    [Authorize(Policy = "permission:homework.manage")]
+    public async Task<ActionResult<HomeworkDto>> Update(int homeworkId, UpdateHomeworkRequest request,
+        CancellationToken ct) => Ok(await _homework.UpdateAsync(homeworkId, request, ct));
+
+    [HttpDelete("{homeworkId:int}")]
+    [Authorize(Policy = "permission:homework.manage")]
+    public async Task<IActionResult> Delete(int homeworkId, CancellationToken ct)
+    {
+        await _homework.DeleteAsync(homeworkId, ct);
+        return NoContent();
+    }
 
     [HttpGet("{homeworkId:int}/submissions")]
     [Authorize(Policy = "permission:homework.manage")]

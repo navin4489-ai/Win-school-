@@ -56,6 +56,46 @@ public sealed class FeeService
         };
     }
 
+    public async Task<FeeCategoryDto> UpdateCategoryAsync(int id, SaveFeeCategoryRequest request, CancellationToken ct = default)
+    {
+        var category = await _db.FeeCategories.FirstOrDefaultAsync(c => c.Id == id && c.SchoolId == SchoolId && !c.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Fee category");
+
+        var name = request.Name.Trim();
+        var code = request.Code.Trim();
+        if (name.Length == 0 || code.Length == 0) throw DomainException.Validation("Name and code are required.");
+
+        var duplicate = await _db.FeeCategories.AnyAsync(c =>
+            c.SchoolId == SchoolId && c.Code == code && c.Id != id && !c.IsDeleted, ct);
+        if (duplicate) throw DomainException.Conflict("A fee category with this code already exists.");
+
+        category.Name = name;
+        category.Code = code;
+        category.IsRecurring = request.IsRecurring;
+        await _uow.SaveChangesAsync(ct);
+
+        return new FeeCategoryDto
+        {
+            Id = category.Id, Name = category.Name, Code = category.Code, IsRecurring = category.IsRecurring
+        };
+    }
+
+    public async Task DeleteCategoryAsync(int id, CancellationToken ct = default)
+    {
+        var category = await _db.FeeCategories.FirstOrDefaultAsync(c => c.Id == id && c.SchoolId == SchoolId && !c.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Fee category");
+
+        var inUse = await (
+            from item in _db.FeeStructureItems
+            join structure in _db.FeeStructures on item.FeeStructureId equals structure.Id
+            where item.SchoolId == SchoolId && item.FeeCategoryId == id && !item.IsDeleted && !structure.IsDeleted
+            select item.Id).AnyAsync(ct);
+        if (inUse) throw DomainException.Conflict("This fee head is used in a fee plan and cannot be deleted.");
+
+        category.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
+    }
+
     // ---------- Structures ----------
 
     public async Task<List<FeeStructureDto>> GetStructuresAsync(int? sessionId, int? classId, CancellationToken ct = default)
@@ -73,6 +113,10 @@ public sealed class FeeService
             where ids.Contains(item.FeeStructureId) && !item.IsDeleted
             select new { item, CategoryName = category.Name }).ToListAsync(ct);
 
+        var assigned = await _db.StudentFeeAssignments
+            .Where(a => a.SchoolId == SchoolId && !a.IsDeleted && ids.Contains(a.FeeStructureId))
+            .Select(a => a.FeeStructureId).Distinct().ToListAsync(ct);
+
         var sessions = await _db.AcademicSessions.Where(s => s.SchoolId == SchoolId).ToDictionaryAsync(s => s.Id, s => s.Name, ct);
         var classes = await _db.Classes.Where(c => c.SchoolId == SchoolId).ToDictionaryAsync(c => c.Id, c => c.Name, ct);
 
@@ -82,6 +126,7 @@ public sealed class FeeService
             SessionName = sessions.GetValueOrDefault(f.AcademicSessionId, string.Empty),
             ClassId = f.ClassId, ClassName = classes.GetValueOrDefault(f.ClassId, string.Empty),
             Name = f.Name, TotalAmount = f.TotalAmount, IsActive = f.IsActive,
+            IsAssigned = assigned.Contains(f.Id),
             Items = items.Where(i => i.item.FeeStructureId == f.Id).Select(i => new FeeStructureItemDto
             {
                 Id = i.item.Id, FeeCategoryId = i.item.FeeCategoryId, CategoryName = i.CategoryName,
@@ -150,6 +195,303 @@ public sealed class FeeService
                 Amount = i.Amount, Frequency = i.Frequency, DueDay = i.DueDay
             }).ToList()
         };
+    }
+
+    // ---------- Structure maintenance ----------
+
+    private const string PlanLockedMessage =
+        "This plan is already assigned to students; deactivate it and create a new plan.";
+
+    public async Task<FeeStructureDto> UpdateStructureAsync(int id, SaveFeeStructureRequest request, CancellationToken ct = default)
+    {
+        if (request.Items.Count == 0) throw DomainException.Validation("At least one fee head is required.");
+
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var structure = await _db.FeeStructures
+                .FirstOrDefaultAsync(f => f.Id == id && f.SchoolId == SchoolId && !f.IsDeleted, token)
+                ?? throw DomainException.NotFound("Fee structure");
+
+            if (await IsStructureAssignedAsync(structure.Id, token)) throw DomainException.Conflict(PlanLockedMessage);
+
+            var session = await _db.AcademicSessions.FirstOrDefaultAsync(s => s.Id == request.AcademicSessionId && s.SchoolId == SchoolId, token)
+                ?? throw DomainException.NotFound("Academic session");
+            if (session.IsClosed) throw DomainException.Conflict("The session is closed.");
+
+            var classExists = await _db.Classes.AnyAsync(c => c.Id == request.ClassId && c.SchoolId == SchoolId && !c.IsDeleted, token);
+            if (!classExists) throw DomainException.NotFound("Class");
+
+            var name = request.Name.Trim();
+            var duplicate = await _db.FeeStructures.AnyAsync(f =>
+                f.SchoolId == SchoolId && f.Id != structure.Id && f.AcademicSessionId == session.Id &&
+                f.ClassId == request.ClassId && f.Name == name && !f.IsDeleted, token);
+            if (duplicate) throw DomainException.Conflict("A fee structure with this name already exists for the class and session.");
+
+            var categoryIds = request.Items.Select(i => i.FeeCategoryId).Distinct().ToList();
+            var validCategories = await _db.FeeCategories
+                .CountAsync(c => c.SchoolId == SchoolId && categoryIds.Contains(c.Id) && !c.IsDeleted, token);
+            if (validCategories != categoryIds.Count) throw DomainException.Validation("One or more fee categories are invalid.");
+
+            structure.Name = name;
+            structure.AcademicSessionId = session.Id;
+            structure.ClassId = request.ClassId;
+            structure.TotalAmount = Math.Round(request.Items.Sum(i => i.Amount), 2, MidpointRounding.AwayFromZero);
+
+            var oldItems = await _db.FeeStructureItems
+                .Where(i => i.FeeStructureId == structure.Id && i.SchoolId == SchoolId && !i.IsDeleted)
+                .ToListAsync(token);
+            foreach (var item in oldItems) item.IsDeleted = true;
+
+            foreach (var input in request.Items)
+            {
+                _db.Add(new FeeStructureItem
+                {
+                    SchoolId = SchoolId,
+                    FeeStructureId = structure.Id,
+                    FeeCategoryId = input.FeeCategoryId,
+                    Amount = input.Amount,
+                    Frequency = input.Frequency,
+                    DueDay = input.DueDay
+                });
+            }
+
+            await _uow.SaveChangesAsync(token);
+            return true;
+        }, ct);
+
+        var all = await GetStructuresAsync(null, null, ct);
+        return all.First(s => s.Id == id);
+    }
+
+    public async Task<FeeStructureDto> SetStructureActiveAsync(int id, bool active, CancellationToken ct = default)
+    {
+        var structure = await _db.FeeStructures
+            .FirstOrDefaultAsync(f => f.Id == id && f.SchoolId == SchoolId && !f.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Fee structure");
+
+        if (structure.IsActive != active)
+        {
+            structure.IsActive = active;
+            await _uow.SaveChangesAsync(ct);
+        }
+
+        var all = await GetStructuresAsync(null, null, ct);
+        return all.First(s => s.Id == id);
+    }
+
+    public async Task DeleteStructureAsync(int id, CancellationToken ct = default)
+    {
+        await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var structure = await _db.FeeStructures
+                .FirstOrDefaultAsync(f => f.Id == id && f.SchoolId == SchoolId && !f.IsDeleted, token)
+                ?? throw DomainException.NotFound("Fee structure");
+
+            if (await IsStructureAssignedAsync(structure.Id, token)) throw DomainException.Conflict(PlanLockedMessage);
+
+            var items = await _db.FeeStructureItems
+                .Where(i => i.FeeStructureId == structure.Id && i.SchoolId == SchoolId && !i.IsDeleted)
+                .ToListAsync(token);
+            foreach (var item in items) item.IsDeleted = true;
+            structure.IsDeleted = true;
+
+            await _uow.SaveChangesAsync(token);
+            return true;
+        }, ct);
+    }
+
+    private Task<bool> IsStructureAssignedAsync(int structureId, CancellationToken ct) =>
+        _db.StudentFeeAssignments.AnyAsync(a =>
+            a.SchoolId == SchoolId && a.FeeStructureId == structureId && !a.IsDeleted, ct);
+
+    // ---------- Assignment changes ----------
+
+    /// <summary>Cancels a fee plan for a student. Only allowed while nothing has been paid against it.</summary>
+    public async Task<StudentLedgerDto> CancelAssignmentAsync(int assignmentId, FeeReasonRequest request, CancellationToken ct = default)
+    {
+        var reason = RequireReason(request.Reason);
+
+        return await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var assignment = await LoadAssignmentAsync(assignmentId, token);
+            if (!assignment.IsActive) throw DomainException.Conflict("This fee plan is already cancelled.");
+
+            var installments = await _db.FeeInstallments
+                .Where(i => i.StudentFeeAssignmentId == assignment.Id && i.SchoolId == SchoolId && !i.IsDeleted)
+                .ToListAsync(token);
+
+            if (installments.Sum(i => i.PaidAmount) > 0)
+                throw DomainException.Conflict("Payments exist; refund them first or waive the remaining installments.");
+
+            foreach (var installment in installments) installment.IsDeleted = true;
+            assignment.IsActive = false;
+
+            AddReasonAudit("CancelFeePlan", nameof(StudentFeeAssignment), assignment.Id, reason, null);
+            await _uow.SaveChangesAsync(token);
+            return await LedgerForAsync(assignment.StudentId, token);
+        }, ct);
+    }
+
+    /// <summary>Waives the unpaid balance of one installment.</summary>
+    public async Task<StudentLedgerDto> WaiveInstallmentAsync(int installmentId, FeeReasonRequest request, CancellationToken ct = default)
+    {
+        var reason = RequireReason(request.Reason);
+
+        return await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var (installment, assignment) = await LoadOpenInstallmentAsync(installmentId, token);
+
+            // Only the unpaid part of the principal reduces what the student is billed.
+            var waived = Math.Round(Math.Min(installment.Amount, Math.Max(0, installment.TotalAmount - installment.PaidAmount)),
+                2, MidpointRounding.AwayFromZero);
+
+            installment.Status = InstallmentStatus.Waived;
+            assignment.NetAmount = Math.Round(assignment.NetAmount - waived, 2, MidpointRounding.AwayFromZero);
+
+            AddReasonAudit("WaiveInstallment", nameof(FeeInstallment), installment.Id, reason, waived);
+            await _uow.SaveChangesAsync(token);
+            return await LedgerForAsync(assignment.StudentId, token);
+        }, ct);
+    }
+
+    /// <summary>Changes the amount, due date or name of an installment that is not yet settled.</summary>
+    public async Task<StudentLedgerDto> UpdateInstallmentAsync(int installmentId, UpdateInstallmentRequest request, CancellationToken ct = default)
+    {
+        var name = request.Name.Trim();
+        if (name.Length == 0) throw DomainException.Validation("Installment name is required.");
+        if (request.DueDate == default) throw DomainException.Validation("Due date is required.");
+        var amount = Math.Round(request.Amount, 2, MidpointRounding.AwayFromZero);
+        if (amount <= 0) throw DomainException.Validation("Installment amount must be positive.");
+
+        return await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var (installment, assignment) = await LoadOpenInstallmentAsync(installmentId, token);
+
+            if (amount + installment.PenaltyAmount < installment.PaidAmount)
+                throw DomainException.Validation(
+                    $"The amount cannot be less than what has already been paid ({Math.Max(0, installment.PaidAmount - installment.PenaltyAmount):0.00}).");
+
+            var difference = amount - installment.Amount;
+            installment.Amount = amount;
+            installment.Name = name;
+            installment.DueDate = request.DueDate;
+            installment.Status = RecomputeStatus(installment);
+            assignment.NetAmount = Math.Round(assignment.NetAmount + difference, 2, MidpointRounding.AwayFromZero);
+
+            await _uow.SaveChangesAsync(token);
+            return await LedgerForAsync(assignment.StudentId, token);
+        }, ct);
+    }
+
+    /// <summary>
+    /// Gives an extra discount on a fee plan. It is taken off the latest unpaid
+    /// installments first, never below what has been paid on each.
+    /// </summary>
+    public async Task<StudentLedgerDto> AddDiscountAsync(int assignmentId, FeeDiscountRequest request, CancellationToken ct = default)
+    {
+        var reason = RequireReason(request.Reason);
+        var discount = Math.Round(request.Amount, 2, MidpointRounding.AwayFromZero);
+        if (discount <= 0) throw DomainException.Validation("Discount must be positive.");
+
+        return await _uow.ExecuteInTransactionAsync(async token =>
+        {
+            var assignment = await LoadAssignmentAsync(assignmentId, token);
+            if (!assignment.IsActive) throw DomainException.Conflict("This fee plan is cancelled.");
+
+            var open = await _db.FeeInstallments
+                .Where(i => i.StudentFeeAssignmentId == assignment.Id && i.SchoolId == SchoolId && !i.IsDeleted &&
+                            i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived)
+                .OrderByDescending(i => i.DueDate).ThenByDescending(i => i.Id)
+                .ToListAsync(token);
+
+            var reducible = open.Sum(Reducible);
+            if (discount > reducible)
+                throw DomainException.Validation($"Discount exceeds the unpaid fee of {reducible:0.00}.");
+
+            var remaining = discount;
+            foreach (var installment in open)
+            {
+                if (remaining <= 0) break;
+                var cut = Math.Min(remaining, Reducible(installment));
+                if (cut <= 0) continue;
+                installment.Amount = Math.Round(installment.Amount - cut, 2, MidpointRounding.AwayFromZero);
+                installment.Status = RecomputeStatus(installment);
+                remaining -= cut;
+            }
+
+            assignment.DiscountAmount = Math.Round(assignment.DiscountAmount + discount, 2, MidpointRounding.AwayFromZero);
+            assignment.NetAmount = Math.Round(assignment.NetAmount - discount, 2, MidpointRounding.AwayFromZero);
+
+            AddReasonAudit("AddFeeDiscount", nameof(StudentFeeAssignment), assignment.Id, reason, discount);
+            await _uow.SaveChangesAsync(token);
+            return await LedgerForAsync(assignment.StudentId, token);
+        }, ct);
+    }
+
+    private static decimal Reducible(FeeInstallment i) =>
+        Math.Max(0, Math.Min(i.Amount, i.TotalAmount - i.PaidAmount));
+
+    private InstallmentStatus RecomputeStatus(FeeInstallment installment)
+    {
+        if (installment.PaidAmount >= installment.TotalAmount)
+            return installment.PaidAmount > 0 ? InstallmentStatus.Paid : InstallmentStatus.Waived;
+        if (installment.PaidAmount > 0) return InstallmentStatus.PartiallyPaid;
+        return installment.DueDate < _clock.Today && installment.Status == InstallmentStatus.Overdue
+            ? InstallmentStatus.Overdue
+            : InstallmentStatus.Pending;
+    }
+
+    private static string RequireReason(string? reason)
+    {
+        var trimmed = reason?.Trim() ?? string.Empty;
+        if (trimmed.Length == 0) throw DomainException.Validation("A reason is required.");
+        return trimmed;
+    }
+
+    private async Task<StudentFeeAssignment> LoadAssignmentAsync(int assignmentId, CancellationToken ct) =>
+        await _db.StudentFeeAssignments
+            .FirstOrDefaultAsync(a => a.Id == assignmentId && a.SchoolId == SchoolId && !a.IsDeleted, ct)
+        ?? throw DomainException.NotFound("Fee assignment");
+
+    private async Task<(FeeInstallment Installment, StudentFeeAssignment Assignment)> LoadOpenInstallmentAsync(
+        int installmentId, CancellationToken ct)
+    {
+        var installment = await _db.FeeInstallments
+            .FirstOrDefaultAsync(i => i.Id == installmentId && i.SchoolId == SchoolId && !i.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Fee installment");
+
+        if (installment.Status == InstallmentStatus.Paid)
+            throw DomainException.Conflict("This installment is already paid.");
+        if (installment.Status == InstallmentStatus.Waived)
+            throw DomainException.Conflict("This installment is already waived.");
+
+        var assignment = await LoadAssignmentAsync(installment.StudentFeeAssignmentId, ct);
+        if (!assignment.IsActive) throw DomainException.Conflict("This fee plan is cancelled.");
+
+        return (installment, assignment);
+    }
+
+    private async Task<StudentLedgerDto> LedgerForAsync(int studentId, CancellationToken ct)
+    {
+        var student = await _db.Students.FirstAsync(s => s.Id == studentId && s.SchoolId == SchoolId, ct);
+        return await BuildLedgerAsync(student, ct);
+    }
+
+    private void AddReasonAudit(string action, string entityName, int entityId, string reason, decimal? amount)
+    {
+        _db.Add(new AuditLog
+        {
+            SchoolId = SchoolId,
+            UserAccountId = _user.UserId,
+            UserEmail = _user.Email,
+            Action = action,
+            EntityName = entityName,
+            EntityId = entityId.ToString(),
+            AfterJson = System.Text.Json.JsonSerializer.Serialize(new { reason, amount }),
+            IpAddress = _user.IpAddress,
+            UserAgent = _user.UserAgent,
+            CreatedAtUtc = _clock.UtcNow
+        });
     }
 
     // ---------- Assignment ----------
@@ -896,29 +1238,48 @@ public sealed class FeeService
         var today = _clock.Today;
         var className = await _db.Classes.Where(c => c.Id == student.ClassId).Select(c => c.Name).FirstOrDefaultAsync(ct) ?? string.Empty;
 
+        var structureIds = assignments.Select(a => a.FeeStructureId).Distinct().ToList();
+        var planNames = await _db.FeeStructures.Where(f => structureIds.Contains(f.Id) && f.SchoolId == SchoolId)
+            .ToDictionaryAsync(f => f.Id, f => f.Name, ct);
+        var active = assignments.Where(a => a.IsActive).ToList();
+
+        // A waived installment owes nothing more, whatever its billed amount was.
+        static decimal Outstanding(FeeInstallment i) =>
+            i.Status == InstallmentStatus.Waived ? 0 : i.TotalAmount - i.PaidAmount;
+
         return new StudentLedgerDto
         {
             StudentId = student.Id,
             StudentName = student.FullName,
             AdmissionNo = student.AdmissionNo,
             ClassName = className,
-            TotalBilled = Math.Round(assignments.Sum(a => a.NetAmount), 2),
-            Discount = Math.Round(assignments.Sum(a => a.DiscountAmount), 2),
-            PlatformFee = Math.Round(assignments.Sum(a => a.PlatformFeeAmount), 2),
+            TotalBilled = Math.Round(active.Sum(a => a.NetAmount), 2),
+            Discount = Math.Round(active.Sum(a => a.DiscountAmount), 2),
+            PlatformFee = Math.Round(active.Sum(a => a.PlatformFeeAmount), 2),
             TotalPaid = Math.Round(payments.Where(p => p.Status != PaymentStatus.Failed)
                 .Sum(p => p.Amount - p.RefundedAmount), 2),
-            Balance = Math.Round(installments.Sum(i => i.TotalAmount - i.PaidAmount), 2),
+            Balance = Math.Round(installments.Sum(Outstanding), 2),
             Overdue = Math.Round(installments
                 .Where(i => i.DueDate < today && i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived)
                 .Sum(i => i.TotalAmount - i.PaidAmount), 2),
             PenaltyTotal = Math.Round(installments.Sum(i => i.PenaltyAmount), 2),
             Installments = installments.Select(i => new InstallmentDto
             {
-                Id = i.Id, Name = i.Name, DueDate = i.DueDate, Amount = i.Amount,
+                Id = i.Id, StudentFeeAssignmentId = i.StudentFeeAssignmentId, Name = i.Name, DueDate = i.DueDate, Amount = i.Amount,
                 PaidAmount = i.PaidAmount, PenaltyAmount = i.PenaltyAmount, TotalAmount = i.TotalAmount,
-                Balance = i.TotalAmount - i.PaidAmount, Status = i.Status,
-                IsOverdue = i.DueDate < today && i.Status != InstallmentStatus.Paid
+                Balance = Outstanding(i), Status = i.Status,
+                IsOverdue = i.DueDate < today && i.Status != InstallmentStatus.Paid && i.Status != InstallmentStatus.Waived
             }).ToList(),
+            Assignments = assignments.OrderByDescending(a => a.IsActive).ThenByDescending(a => a.AssignedAtUtc)
+                .Select(a => new StudentFeeAssignmentDto
+                {
+                    Id = a.Id, FeeStructureId = a.FeeStructureId,
+                    PlanName = planNames.GetValueOrDefault(a.FeeStructureId, string.Empty),
+                    TotalAmount = a.TotalAmount, DiscountAmount = a.DiscountAmount, NetAmount = a.NetAmount,
+                    PlatformFeeAmount = a.PlatformFeeAmount,
+                    PaidAmount = Math.Round(installments.Where(i => i.StudentFeeAssignmentId == a.Id).Sum(i => i.PaidAmount), 2),
+                    IsActive = a.IsActive, AssignedAtUtc = a.AssignedAtUtc
+                }).ToList(),
             Payments = payments.Select(p => new PaymentDto
             {
                 Id = p.Id, ReceiptNo = p.ReceiptNo, StudentId = p.StudentId, StudentName = student.FullName,

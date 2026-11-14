@@ -74,7 +74,12 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
               <div class="full"><button class="btn btn-primary" type="submit" [disabled]="subjectForm.invalid || busy()">Add subject</button></div>
             </form>
             <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:12px">
-              @for (s of subjects(); track s.id) { <span class="badge">{{ s.name }} ({{ s.code }})</span> }
+              @for (s of subjects(); track s.id) {
+                <span class="badge">{{ s.name }} ({{ s.code }})
+                  <button type="button" class="btn btn-ghost btn-sm" style="padding:0 4px;min-height:auto" [disabled]="busy()"
+                    (click)="deleteSubject(s)" [attr.aria-label]="'Delete subject ' + s.name" title="Delete subject">×</button>
+                </span>
+              }
             </div>
           </div>
         </section>
@@ -97,14 +102,20 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
                     <td>
                       <div class="row" style="flex-wrap:wrap;gap:6px">
                         @for (s of sections()[c.id] ?? []; track s.id) {
-                          <span class="badge teal">{{ s.name }} · {{ s.studentCount }}/{{ s.capacity }}</span>
+                          <span class="badge teal">{{ s.name }} · {{ s.studentCount }}/{{ s.capacity }}
+                            <button type="button" class="btn btn-ghost btn-sm" style="padding:0 4px;min-height:auto" [disabled]="busy()"
+                              (click)="deleteSection(c, s)" [attr.aria-label]="'Delete section ' + s.name + ' of ' + c.name" title="Delete section">×</button>
+                          </span>
                         }
                         <input #sec placeholder="New section e.g. A" style="width:130px" />
                         <input #cap type="number" value="40" title="Capacity" style="width:70px" />
                         <button class="btn btn-ghost btn-sm" [disabled]="busy()" (click)="addSection(c, sec.value, +cap.value); sec.value=''">Add</button>
                       </div>
                     </td>
-                    <td><button class="btn btn-ghost btn-sm" (click)="editClass(c)">Edit</button></td>
+                    <td class="row" style="gap:6px">
+                      <button class="btn btn-ghost btn-sm" [disabled]="busy()" (click)="editClass(c)">Edit</button>
+                      <button class="btn btn-ghost btn-sm" [disabled]="busy()" (click)="deleteClass(c)" [attr.aria-label]="'Delete class ' + c.name">Delete</button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -208,6 +219,38 @@ export class ClassesComponent implements OnInit {
     this.busy.set(true);
     this.api.post('admin/subjects', this.subjectForm.getRawValue()).pipe(finalize(() => this.busy.set(false))).subscribe({
       next: () => { this.ok('Subject added.'); this.subjectForm.reset({ name: '', code: '', isElective: false }); this.loadSubjects(); },
+      error: r => this.fail(r)
+    });
+  }
+
+  deleteClass(c: ClassRoom): void {
+    if (this.busy() || !window.confirm(`Delete class ${c.name}? Its sections and subject mappings will also be removed.`)) return;
+    this.busy.set(true);
+    this.api.delete(`admin/classes/${c.id}`).pipe(finalize(() => this.busy.set(false))).subscribe({
+      next: () => {
+        this.ok(`${c.name} deleted.`);
+        if (this.editingClass() === c.id) this.resetClass();
+        this.sections.update(all => ({ ...all, [c.id]: undefined }));
+        this.load();
+      },
+      error: r => this.fail(r)
+    });
+  }
+
+  deleteSection(c: ClassRoom, s: Section): void {
+    if (this.busy() || !window.confirm(`Delete section ${s.name} of ${c.name}?`)) return;
+    this.busy.set(true);
+    this.api.delete(`admin/classes/${c.id}/sections/${s.id}`).pipe(finalize(() => this.busy.set(false))).subscribe({
+      next: () => { this.ok(`Section ${s.name} removed from ${c.name}.`); this.loadSections(c.id); },
+      error: r => this.fail(r)
+    });
+  }
+
+  deleteSubject(s: Subject): void {
+    if (this.busy() || !window.confirm(`Delete subject ${s.name}?`)) return;
+    this.busy.set(true);
+    this.api.delete(`admin/subjects/${s.id}`).pipe(finalize(() => this.busy.set(false))).subscribe({
+      next: () => { this.ok(`Subject ${s.name} deleted.`); this.loadSubjects(); },
       error: r => this.fail(r)
     });
   }

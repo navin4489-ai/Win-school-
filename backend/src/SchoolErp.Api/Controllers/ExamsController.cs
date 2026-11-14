@@ -22,6 +22,19 @@ public sealed class ExamsController : ControllerBase
     public async Task<ActionResult<ExamDto>> Create(SaveExamRequest request, CancellationToken ct) =>
         Ok(await _exams.CreateAsync(request, ct));
 
+    [HttpPut("{examId:int}")]
+    [Authorize(Policy = "permission:exams.manage")]
+    public async Task<ActionResult<ExamDto>> Update(int examId, UpdateExamRequest request, CancellationToken ct) =>
+        Ok(await _exams.UpdateAsync(examId, request, ct));
+
+    [HttpDelete("{examId:int}")]
+    [Authorize(Policy = "permission:exams.manage")]
+    public async Task<IActionResult> Delete(int examId, CancellationToken ct)
+    {
+        await _exams.DeleteAsync(examId, ct);
+        return NoContent();
+    }
+
     [HttpGet("{examId:int}/subjects")]
     [Authorize(Policy = "permission:exams.read")]
     public async Task<ActionResult<List<ExamSubjectDto>>> Subjects(int examId, CancellationToken ct) =>

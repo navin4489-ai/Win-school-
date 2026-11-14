@@ -39,6 +39,8 @@ public sealed class FeeStructureDto
     public string Name { get; init; } = string.Empty;
     public decimal TotalAmount { get; init; }
     public bool IsActive { get; init; }
+    /// <summary>True once the plan has been assigned to any student; it can then no longer be edited or deleted.</summary>
+    public bool IsAssigned { get; init; }
     public IReadOnlyList<FeeStructureItemDto> Items { get; init; } = Array.Empty<FeeStructureItemDto>();
 }
 
@@ -76,6 +78,7 @@ public sealed class AssignFeeRequest
 public sealed class InstallmentDto
 {
     public int Id { get; init; }
+    public int StudentFeeAssignmentId { get; init; }
     public string Name { get; init; } = string.Empty;
     public DateOnly DueDate { get; init; }
     public decimal Amount { get; init; }
@@ -117,6 +120,39 @@ public sealed class StudentLedgerDto
     public decimal PenaltyTotal { get; init; }
     public IReadOnlyList<InstallmentDto> Installments { get; init; } = Array.Empty<InstallmentDto>();
     public IReadOnlyList<PaymentDto> Payments { get; init; } = Array.Empty<PaymentDto>();
+    public IReadOnlyList<StudentFeeAssignmentDto> Assignments { get; init; } = Array.Empty<StudentFeeAssignmentDto>();
+}
+
+public sealed class StudentFeeAssignmentDto
+{
+    public int Id { get; init; }
+    public int FeeStructureId { get; init; }
+    public string PlanName { get; init; } = string.Empty;
+    public decimal TotalAmount { get; init; }
+    public decimal DiscountAmount { get; init; }
+    public decimal NetAmount { get; init; }
+    public decimal PlatformFeeAmount { get; init; }
+    public decimal PaidAmount { get; init; }
+    public bool IsActive { get; init; }
+    public DateTime AssignedAtUtc { get; init; }
+}
+
+public sealed class FeeReasonRequest
+{
+    [Required, MaxLength(500)] public string Reason { get; set; } = string.Empty;
+}
+
+public sealed class FeeDiscountRequest
+{
+    [Range(0.01, 10_000_000)] public decimal Amount { get; set; }
+    [Required, MaxLength(500)] public string Reason { get; set; } = string.Empty;
+}
+
+public sealed class UpdateInstallmentRequest
+{
+    [Required, MaxLength(120)] public string Name { get; set; } = string.Empty;
+    public DateOnly DueDate { get; set; }
+    [Range(0.01, 10_000_000)] public decimal Amount { get; set; }
 }
 
 public sealed class RecordPaymentRequest

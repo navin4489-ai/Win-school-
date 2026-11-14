@@ -6,6 +6,7 @@ import { AuthService } from '../../core/auth.service';
 import {
   AcademicSession, ClassRoom, Exam, ExamResultRow, ExamSubject, StudentMark
 } from '../../core/models';
+import { readError } from '../platform/schools.component';
 
 @Component({
   selector: 'app-exams',
@@ -21,7 +22,7 @@ import {
         </div>
         <div class="toolbar">
           @if (auth.has('exams.manage')) {
-            <button class="btn btn-primary" (click)="formOpen.set(!formOpen())">
+            <button class="btn btn-primary" (click)="toggleForm()">
               {{ formOpen() ? 'Close' : '+ New exam' }}
             </button>
           }
@@ -33,9 +34,9 @@ import {
 
       @if (formOpen()) {
         <section class="card">
-          <div class="card-header"><h3>Create examination</h3></div>
+          <div class="card-header"><h3>{{ editingExam() ? 'Edit examination' : 'Create examination' }}</h3></div>
           <div class="card-body">
-            <form class="form-grid" [formGroup]="form" (ngSubmit)="createExam()">
+            <form class="form-grid" [formGroup]="form" (ngSubmit)="saveExam()">
               <label class="field">
                 <span>Name *</span>
                 <input formControlName="name" placeholder="e.g. Term 1 Assessment" />
@@ -54,8 +55,11 @@ import {
               </label>
               <div class="full">
                 <button class="btn btn-primary" type="submit" [disabled]="saving() || form.invalid">
-                  {{ saving() ? 'Creating…' : 'Create exam' }}
+                  {{ saving() ? 'Saving…' : (editingExam() ? 'Save changes' : 'Create exam') }}
                 </button>
+                @if (editingExam()) {
+                  <button class="btn btn-ghost" type="button" [disabled]="saving()" (click)="cancelEdit()">Cancel</button>
+                }
               </div>
             </form>
           </div>
@@ -81,7 +85,15 @@ import {
                         </td>
                         <td class="small muted">{{ exam.startDate | date:'dd MMM' }} – {{ exam.endDate | date:'dd MMM yyyy' }}</td>
                         <td><span [class]="'badge ' + badge(exam.status)">{{ exam.status }}</span></td>
-                        <td><button class="btn btn-ghost btn-sm" (click)="selectExam(exam)">Open</button></td>
+                        <td>
+                          <div class="row" style="gap:6px">
+                            <button class="btn btn-ghost btn-sm" (click)="selectExam(exam)">Open</button>
+                            @if (auth.has('exams.manage') && exam.status === 'Draft') {
+                              <button class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="editExam(exam)" [attr.aria-label]="'Edit ' + exam.name">Edit</button>
+                              <button class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="deleteExam(exam)" [attr.aria-label]="'Delete ' + exam.name">Delete</button>
+                            }
+                          </div>
+                        </td>
                       </tr>
                     }
                   </tbody>
@@ -231,6 +243,7 @@ export class ExamsComponent implements OnInit {
   readonly marksSubject = signal<ExamSubject | null>(null);
   readonly resultClassId = signal('');
   readonly formOpen = signal(false);
+  readonly editingExam = signal<Exam | null>(null);
   readonly saving = signal(false);
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
@@ -331,6 +344,78 @@ export class ExamsComponent implements OnInit {
           this.error.set('Marks could not be saved. Check the maximum marks.');
         }
       });
+  }
+
+  toggleForm(): void {
+    if (this.formOpen()) { this.cancelEdit(); return; }
+    this.formOpen.set(true);
+  }
+
+  saveExam(): void {
+    const editing = this.editingExam();
+    if (editing) this.updateExam(editing);
+    else this.createExam();
+  }
+
+  editExam(exam: Exam): void {
+    this.editingExam.set(exam);
+    this.form.reset({
+      name: exam.name, examType: exam.examType, startDate: exam.startDate.slice(0, 10),
+      endDate: exam.endDate.slice(0, 10), isRankEnabled: exam.isRankEnabled
+    });
+    this.formOpen.set(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  cancelEdit(): void {
+    this.editingExam.set(null);
+    this.formOpen.set(false);
+    this.form.reset({ name: '', examType: 'UnitTest', startDate: '', endDate: '', isRankEnabled: true });
+  }
+
+  updateExam(exam: Exam): void {
+    if (this.form.invalid || this.saving()) return;
+    this.saving.set(true);
+    this.error.set(null);
+    this.api.put<Exam>(`exams/${exam.id}`, this.form.getRawValue()).subscribe({
+      next: updated => {
+        this.saving.set(false);
+        this.message.set(`${updated.name} updated.`);
+        this.cancelEdit();
+        if (this.selected()?.id === updated.id) this.selected.set(updated);
+        this.loadExams(updated.academicSessionId);
+      },
+      error: r => {
+        this.saving.set(false);
+        this.message.set(null);
+        this.error.set(readError(r));
+      }
+    });
+  }
+
+  deleteExam(exam: Exam): void {
+    if (this.saving() || !window.confirm(`Delete ${exam.name}? Its subject configuration will also be removed.`)) return;
+    this.saving.set(true);
+    this.error.set(null);
+    this.api.delete(`exams/${exam.id}`).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.message.set(`${exam.name} deleted.`);
+        if (this.editingExam()?.id === exam.id) this.cancelEdit();
+        if (this.selected()?.id === exam.id) {
+          this.selected.set(null);
+          this.subjects.set([]);
+          this.results.set([]);
+          this.marksSubject.set(null);
+        }
+        this.loadExams(exam.academicSessionId);
+      },
+      error: r => {
+        this.saving.set(false);
+        this.message.set(null);
+        this.error.set(readError(r));
+      }
+    });
   }
 
   createExam(): void {

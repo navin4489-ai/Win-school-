@@ -164,6 +164,7 @@ export interface AcademicSession { id: number; name: string; startDate: string; 
 
 export interface Installment {
   id: number;
+  studentFeeAssignmentId: number;
   name: string;
   dueDate: string;
   amount: number;
@@ -215,6 +216,20 @@ export interface Ledger {
   platformFee: number;
   installments: Installment[];
   payments: Payment[];
+  assignments: FeeAssignment[];
+}
+
+export interface FeeAssignment {
+  id: number;
+  feeStructureId: number;
+  planName: string;
+  totalAmount: number;
+  discountAmount: number;
+  netAmount: number;
+  platformFeeAmount: number;
+  paidAmount: number;
+  isActive: boolean;
+  assignedAtUtc: string;
 }
 
 export interface RosterEntry {

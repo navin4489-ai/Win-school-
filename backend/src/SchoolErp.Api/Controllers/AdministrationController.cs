@@ -77,6 +77,14 @@ public sealed class AdministrationController : ControllerBase
     public async Task<ActionResult<ClassDto>> UpdateClass(int id, SaveClassRequest request, CancellationToken ct) =>
         Ok(await _admin.SaveClassAsync(id, request, ct));
 
+    [HttpDelete("classes/{id:int}")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<IActionResult> DeleteClass(int id, CancellationToken ct)
+    {
+        await _admin.DeleteClassAsync(id, ct);
+        return NoContent();
+    }
+
     // Sections
     [HttpGet("classes/{classId:int}/sections")]
     public async Task<ActionResult<List<SectionDto>>> Sections(int classId, CancellationToken ct) =>
@@ -92,6 +100,14 @@ public sealed class AdministrationController : ControllerBase
     public async Task<ActionResult<SectionDto>> UpdateSection(int classId, int id, SaveSectionRequest request,
         CancellationToken ct) => Ok(await _admin.SaveSectionAsync(classId, id, request, ct));
 
+    [HttpDelete("classes/{classId:int}/sections/{id:int}")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<IActionResult> DeleteSection(int classId, int id, CancellationToken ct)
+    {
+        await _admin.DeleteSectionAsync(classId, id, ct);
+        return NoContent();
+    }
+
     // Subjects
     [HttpGet("subjects")]
     public async Task<ActionResult<List<SubjectDto>>> Subjects(CancellationToken ct) =>
@@ -106,6 +122,14 @@ public sealed class AdministrationController : ControllerBase
     [Authorize(Policy = "permission:settings.manage")]
     public async Task<ActionResult<SubjectDto>> UpdateSubject(int id, SaveSubjectRequest request,
         CancellationToken ct) => Ok(await _admin.SaveSubjectAsync(id, request, ct));
+
+    [HttpDelete("subjects/{id:int}")]
+    [Authorize(Policy = "permission:settings.manage")]
+    public async Task<IActionResult> DeleteSubject(int id, CancellationToken ct)
+    {
+        await _admin.DeleteSubjectAsync(id, ct);
+        return NoContent();
+    }
 
     // Class subjects
     [HttpGet("classes/{classId:int}/subjects")]
@@ -167,6 +191,19 @@ public sealed class AdministrationController : ControllerBase
     [Authorize(Policy = "permission:communication.manage")]
     public async Task<ActionResult<AnnouncementDto>> CreateAnnouncement(SaveAnnouncementRequest request,
         CancellationToken ct) => Ok(await _admin.CreateAnnouncementAsync(request, ct));
+
+    [HttpPut("announcements/{id:int}")]
+    [Authorize(Policy = "permission:communication.manage")]
+    public async Task<ActionResult<AnnouncementDto>> UpdateAnnouncement(int id, SaveAnnouncementRequest request,
+        CancellationToken ct) => Ok(await _admin.UpdateAnnouncementAsync(id, request, ct));
+
+    [HttpDelete("announcements/{id:int}")]
+    [Authorize(Policy = "permission:communication.manage")]
+    public async Task<IActionResult> DeleteAnnouncement(int id, CancellationToken ct)
+    {
+        await _admin.DeleteAnnouncementAsync(id, ct);
+        return NoContent();
+    }
 
     // Teacher assignments — the principal decides who teaches which class and section.
     [HttpGet("teacher-assignments")]

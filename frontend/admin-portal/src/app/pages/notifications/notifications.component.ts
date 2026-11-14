@@ -1,9 +1,15 @@
 import { DatePipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import { NotificationItem } from '../../core/models';
+import { readError } from '../platform/schools.component';
+
+interface Announcement {
+  id: number; title: string; body: string; audience: string;
+  publishedAtUtc?: string | null; expiresAtUtc?: string | null; createdAtUtc: string;
+}
 
 @Component({
   selector: 'app-notifications',
@@ -68,6 +74,71 @@ import { NotificationItem } from '../../core/models';
         </section>
       }
 
+      @if (canManageAnnouncements()) {
+        <section class="card">
+          <div class="card-header">
+            <h3>Announcements</h3>
+            <button class="btn btn-ghost btn-sm" type="button" (click)="toggleAnnouncementForm()">
+              {{ announcementFormOpen() ? 'Close' : 'New announcement' }}
+            </button>
+          </div>
+          @if (announcementFormOpen()) {
+            <div class="card-body">
+              <form class="form-grid" [formGroup]="announcementForm" (ngSubmit)="saveAnnouncement()">
+                <label class="field full"><span>Title *</span><input formControlName="title" maxlength="200" /></label>
+                <label class="field full"><span>Message *</span><textarea formControlName="body" maxlength="4000"></textarea></label>
+                <label class="field">
+                  <span>Audience</span>
+                  <select formControlName="audience">
+                    <option value="All">Everyone</option>
+                    <option value="Parents">Parents</option>
+                    <option value="Students">Students</option>
+                    <option value="Employees">Employees</option>
+                  </select>
+                </label>
+                <label class="field"><span>Expires on</span><input type="date" formControlName="expiresOn" /></label>
+                <div class="full row">
+                  <button class="btn btn-primary" type="submit" [disabled]="saving() || announcementForm.invalid">
+                    {{ saving() ? 'Saving…' : (editingAnnouncement() ? 'Save changes' : 'Publish announcement') }}
+                  </button>
+                  @if (editingAnnouncement()) {
+                    <button class="btn btn-ghost" type="button" [disabled]="saving()" (click)="resetAnnouncement()">Cancel</button>
+                  }
+                </div>
+              </form>
+            </div>
+          }
+          @if (!announcements().length) {
+            <div class="empty">No announcements yet.</div>
+          } @else {
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Title</th><th>Audience</th><th>Published</th><th>Expires</th><th></th></tr></thead>
+                <tbody>
+                  @for (a of announcements(); track a.id) {
+                    <tr>
+                      <td>
+                        <div class="primary">{{ a.title }}</div>
+                        <div class="secondary">{{ a.body }}</div>
+                      </td>
+                      <td><span class="badge">{{ a.audience }}</span></td>
+                      <td class="small muted">{{ (a.publishedAtUtc ?? a.createdAtUtc) | date:'dd MMM yyyy' }}</td>
+                      <td class="small muted">{{ a.expiresAtUtc ? (a.expiresAtUtc | date:'dd MMM yyyy') : '-' }}</td>
+                      <td>
+                        <div class="row" style="gap:6px">
+                          <button class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="editAnnouncement(a)" [attr.aria-label]="'Edit announcement ' + a.title">Edit</button>
+                          <button class="btn btn-ghost btn-sm" [disabled]="saving()" (click)="deleteAnnouncement(a)" [attr.aria-label]="'Delete announcement ' + a.title">Delete</button>
+                        </div>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          }
+        </section>
+      }
+
       <section class="card">
         @if (loading()) {
           <div class="loading">Loading notifications…</div>
@@ -125,6 +196,92 @@ export class NotificationsComponent implements OnInit {
 
   ngOnInit(): void {
     this.load();
+    this.loadAnnouncements();
+  }
+
+  readonly canManageAnnouncements = computed(() => this.auth.has('communication.manage'));
+  readonly announcements = signal<Announcement[]>([]);
+  readonly announcementFormOpen = signal(false);
+  readonly editingAnnouncement = signal<Announcement | null>(null);
+
+  readonly announcementForm = this.fb.nonNullable.group({
+    title: ['', [Validators.required, Validators.maxLength(200)]],
+    body: ['', [Validators.required, Validators.maxLength(4000)]],
+    audience: ['All'],
+    expiresOn: ['']
+  });
+
+  loadAnnouncements(): void {
+    if (!this.canManageAnnouncements()) return;
+    this.api.get<Announcement[]>('admin/announcements').subscribe({
+      next: rows => this.announcements.set(rows),
+      error: r => this.error.set(readError(r))
+    });
+  }
+
+  toggleAnnouncementForm(): void {
+    if (this.announcementFormOpen()) { this.resetAnnouncement(); return; }
+    this.announcementFormOpen.set(true);
+  }
+
+  editAnnouncement(a: Announcement): void {
+    this.editingAnnouncement.set(a);
+    this.announcementForm.reset({
+      title: a.title, body: a.body, audience: a.audience,
+      expiresOn: a.expiresAtUtc ? toDateInput(a.expiresAtUtc) : ''
+    });
+    this.announcementFormOpen.set(true);
+  }
+
+  resetAnnouncement(): void {
+    this.editingAnnouncement.set(null);
+    this.announcementFormOpen.set(false);
+    this.announcementForm.reset({ title: '', body: '', audience: 'All', expiresOn: '' });
+  }
+
+  saveAnnouncement(): void {
+    if (this.announcementForm.invalid || this.saving()) return;
+    const raw = this.announcementForm.getRawValue();
+    const body = {
+      title: raw.title.trim(), body: raw.body.trim(), audience: raw.audience,
+      expiresAtUtc: raw.expiresOn ? new Date(`${raw.expiresOn}T23:59:59`).toISOString() : null
+    };
+    const editing = this.editingAnnouncement();
+    this.saving.set(true);
+    this.error.set(null);
+    (editing ? this.api.put<Announcement>(`admin/announcements/${editing.id}`, body) : this.api.post<Announcement>('admin/announcements', body))
+      .subscribe({
+        next: () => {
+          this.saving.set(false);
+          this.message.set(editing ? `Announcement "${body.title}" updated.` : `Announcement "${body.title}" published.`);
+          this.resetAnnouncement();
+          this.loadAnnouncements();
+        },
+        error: r => {
+          this.saving.set(false);
+          this.message.set(null);
+          this.error.set(readError(r));
+        }
+      });
+  }
+
+  deleteAnnouncement(a: Announcement): void {
+    if (this.saving() || !window.confirm(`Delete announcement "${a.title}"?`)) return;
+    this.saving.set(true);
+    this.error.set(null);
+    this.api.delete(`admin/announcements/${a.id}`).subscribe({
+      next: () => {
+        this.saving.set(false);
+        this.message.set(`Announcement "${a.title}" deleted.`);
+        if (this.editingAnnouncement()?.id === a.id) this.resetAnnouncement();
+        this.loadAnnouncements();
+      },
+      error: r => {
+        this.saving.set(false);
+        this.message.set(null);
+        this.error.set(readError(r));
+      }
+    });
   }
 
   load(): void {
@@ -173,4 +330,14 @@ export class NotificationsComponent implements OnInit {
       }
     });
   }
+}
+
+function asUtc(value: string): string {
+  return /Z|[+-]\d\d:\d\d$/.test(value) ? value : value + 'Z';
+}
+
+function toDateInput(value: string): string {
+  const d = new Date(asUtc(value));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }

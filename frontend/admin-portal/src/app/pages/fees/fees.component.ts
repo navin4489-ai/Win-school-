@@ -4,13 +4,15 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
+import { Observable } from 'rxjs';
 import { ApiService } from '../../core/api.service';
 import { AuthService } from '../../core/auth.service';
 import {
-  Child, ClassRoom, CollectionSummary, Defaulter, Ledger, PagedResult, Payment, PaymentMode, PaymentOrder
+  Child, ClassRoom, CollectionSummary, Defaulter, Installment, Ledger, PagedResult, Payment, PaymentMode, PaymentOrder
 } from '../../core/models';
 
 type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
+type LedgerAction = 'discount' | 'cancel' | 'edit' | 'waive';
 
 @Component({
   selector: 'app-fees',
@@ -271,9 +273,46 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
                   }
                 </div>
                 <div class="divider"></div>
+                @if (canManage() && l.assignments.length) {
+                  <div style="font-weight:650;margin-bottom:6px">Fee plans</div>
+                  <div class="list">
+                    @for (a of l.assignments; track a.id) {
+                      <div class="list-item" style="flex-wrap:wrap">
+                        <div [class]="'dot ' + (a.isActive ? 'green' : '')"></div>
+                        <div style="flex:1">
+                          <div style="font-weight:600">{{ a.planName }} @if (!a.isActive) { <span class="badge">Cancelled</span> }</div>
+                          <div class="small muted">
+                            Net {{ a.netAmount | currency:'INR':'symbol':'1.0-0' }} · Discount {{ a.discountAmount | currency:'INR':'symbol':'1.0-0' }}
+                            @if (a.platformFeeAmount > 0) { · Platform fee {{ a.platformFeeAmount | currency:'INR':'symbol':'1.0-0' }} }
+                            · Paid {{ a.paidAmount | currency:'INR':'symbol':'1.0-0' }}
+                          </div>
+                        </div>
+                        @if (a.isActive) {
+                          <div class="row" style="gap:6px">
+                            <button class="btn btn-ghost btn-sm" type="button" (click)="openAction('discount', a.id)" [disabled]="acting()">Add discount</button>
+                            <button class="btn btn-ghost btn-sm" type="button" (click)="openAction('cancel', a.id)" [disabled]="acting()">Cancel plan</button>
+                          </div>
+                        }
+                        @if (action()?.id === a.id && (action()?.kind === 'discount' || action()?.kind === 'cancel')) {
+                          <div class="row" style="gap:6px;flex-wrap:wrap;width:100%;margin-top:6px">
+                            @if (action()?.kind === 'discount') {
+                              <input type="number" min="0.01" step="0.01" [(ngModel)]="actAmount" aria-label="Discount amount" placeholder="Amount" style="max-width:120px" />
+                            }
+                            <input [(ngModel)]="actReason" aria-label="Reason" placeholder="Reason *" maxlength="500" style="flex:1;min-width:160px" />
+                            <button class="btn btn-primary btn-sm" type="button" (click)="submitAction(l.studentId)" [disabled]="acting() || !actionValid()">
+                              {{ acting() ? 'Saving…' : (action()?.kind === 'discount' ? 'Apply discount' : 'Cancel plan') }}
+                            </button>
+                            <button class="btn btn-ghost btn-sm" type="button" (click)="closeAction()" [disabled]="acting()">Close</button>
+                          </div>
+                        }
+                      </div>
+                    }
+                  </div>
+                  <div class="divider"></div>
+                }
                 <div class="list">
                   @for (installment of l.installments; track installment.id) {
-                    <div class="list-item">
+                    <div class="list-item" style="flex-wrap:wrap">
                       <div [class]="'dot ' + (installment.isOverdue ? 'red' : installment.balance <= 0 ? 'green' : '')"></div>
                       <div style="flex:1">
                         <div style="font-weight:600">{{ installment.name }}</div>
@@ -292,7 +331,31 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
                             @if (onlineEnabled()) { <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">Pay online</button> }
                           </div>
                         }
+                        @if (canManage() && isOpen(installment)) {
+                          <div class="row" style="gap:6px;justify-content:flex-end;margin-top:4px">
+                            <button class="btn btn-ghost btn-sm" type="button" (click)="openEdit(installment)" [disabled]="acting()">Edit</button>
+                            <button class="btn btn-ghost btn-sm" type="button" (click)="openAction('waive', installment.id)" [disabled]="acting()">Waive</button>
+                          </div>
+                        }
                       </div>
+                      @if (action()?.id === installment.id && (action()?.kind === 'edit' || action()?.kind === 'waive')) {
+                        <div class="row" style="gap:6px;flex-wrap:wrap;width:100%;margin-top:6px">
+                          @if (action()?.kind === 'edit') {
+                            <input [(ngModel)]="actName" aria-label="Installment name" placeholder="Name *" maxlength="120" style="max-width:160px" />
+                            <input type="date" [(ngModel)]="actDue" aria-label="Due date" />
+                            <input type="number" min="0.01" step="0.01" [(ngModel)]="actAmount" aria-label="Amount" placeholder="Amount" style="max-width:120px" />
+                            @if (installment.paidAmount > 0) {
+                              <span class="small muted">Min {{ minAmount(installment) | currency:'INR':'symbol':'1.0-2' }} (already paid)</span>
+                            }
+                          } @else {
+                            <input [(ngModel)]="actReason" aria-label="Reason" placeholder="Reason *" maxlength="500" style="flex:1;min-width:160px" />
+                          }
+                          <button class="btn btn-primary btn-sm" type="button" (click)="submitAction(l.studentId, installment)" [disabled]="acting() || !actionValid(installment)">
+                            {{ acting() ? 'Saving…' : (action()?.kind === 'edit' ? 'Save' : 'Waive balance') }}
+                          </button>
+                          <button class="btn btn-ghost btn-sm" type="button" (click)="closeAction()" [disabled]="acting()">Close</button>
+                        </div>
+                      }
                     </div>
                   }
                 </div>
@@ -471,6 +534,103 @@ export class FeesComponent implements OnInit {
   private feeInstallmentId: number | null = null;
 
   readonly canSetup = computed(() => this.auth.has('fees.collect'));
+  readonly canManage = computed(() => this.auth.has('fees.collect'));
+  readonly action = signal<{ kind: LedgerAction; id: number } | null>(null);
+  readonly acting = signal(false);
+  actAmount: number | null = null;
+  actReason = '';
+  actName = '';
+  actDue = '';
+
+  isOpen(i: Installment): boolean {
+    return i.status !== 'Paid' && i.status !== 'Waived';
+  }
+
+  minAmount(i: Installment): number {
+    return Math.max(0, i.paidAmount - i.penaltyAmount);
+  }
+
+  openAction(kind: LedgerAction, id: number): void {
+    this.action.set({ kind, id });
+    this.actAmount = null;
+    this.actReason = '';
+  }
+
+  openEdit(i: Installment): void {
+    this.openAction('edit', i.id);
+    this.actName = i.name;
+    this.actDue = i.dueDate.substring(0, 10);
+    this.actAmount = i.amount;
+  }
+
+  closeAction(): void {
+    this.action.set(null);
+  }
+
+  actionValid(installment?: Installment): boolean {
+    const a = this.action();
+    if (!a) return false;
+    const amount = Number(this.actAmount);
+    switch (a.kind) {
+      case 'cancel':
+      case 'waive':
+        return !!this.actReason.trim();
+      case 'discount':
+        return !!this.actReason.trim() && amount > 0;
+      case 'edit':
+        return !!this.actName.trim() && !!this.actDue && amount > 0 &&
+          (!installment || amount >= this.minAmount(installment));
+    }
+  }
+
+  submitAction(studentId: number, installment?: Installment): void {
+    const a = this.action();
+    if (!a || this.acting() || !this.actionValid(installment)) return;
+
+    const reason = this.actReason.trim();
+    const amount = Math.round(Number(this.actAmount) * 100) / 100;
+    let request: Observable<Ledger>;
+    let done: string;
+
+    switch (a.kind) {
+      case 'cancel':
+        if (!confirm('Cancel this fee plan? All its installments will be removed from the ledger.')) return;
+        request = this.api.post<Ledger>(`fees/assignments/${a.id}/cancel`, { reason });
+        done = 'Fee plan cancelled.';
+        break;
+      case 'discount':
+        request = this.api.post<Ledger>(`fees/assignments/${a.id}/discount`, { amount, reason });
+        done = `Discount of ${amount.toLocaleString('en-IN')} applied.`;
+        break;
+      case 'waive':
+        if (!confirm(`Waive the remaining balance of ${installment?.name ?? 'this installment'}?`)) return;
+        request = this.api.post<Ledger>(`fees/installments/${a.id}/waive`, { reason });
+        done = 'Installment balance waived.';
+        break;
+      case 'edit':
+        request = this.api.put<Ledger>(`fees/installments/${a.id}`, { name: this.actName.trim(), dueDate: this.actDue, amount });
+        done = 'Installment updated.';
+        break;
+    }
+
+    this.acting.set(true);
+    this.error.set(null);
+    this.message.set(null);
+    request.subscribe({
+      next: () => {
+        this.acting.set(false);
+        this.action.set(null);
+        this.message.set(done);
+        this.form.patchValue({ studentId });
+        this.loadLedger();
+        this.loadOutstanding();
+      },
+      error: response => {
+        this.acting.set(false);
+        this.error.set(readError(response) ?? 'The change could not be saved.');
+      }
+    });
+  }
   readonly studentSearch = signal('');
   readonly studentMatches = signal<{ id: number; fullName: string; admissionNo: string }[]>([]);
 

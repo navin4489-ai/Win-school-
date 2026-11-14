@@ -424,6 +424,59 @@ public sealed class AdministrationService
         };
     }
 
+    public async Task DeleteClassAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await _db.Classes.FirstOrDefaultAsync(c => c.Id == id && c.SchoolId == SchoolId && !c.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Class");
+
+        if (await _db.Students.AnyAsync(s => s.SchoolId == SchoolId && s.ClassId == id && !s.IsDeleted, ct))
+            throw DomainException.Conflict($"{entity.Name} has students enrolled. Move or remove them before deleting the class.");
+
+        var sections = await _db.Sections.Where(s => s.SchoolId == SchoolId && s.ClassId == id && !s.IsDeleted).ToListAsync(ct);
+        var classSubjects = await _db.ClassSubjects.Where(cs => cs.SchoolId == SchoolId && cs.ClassId == id && !cs.IsDeleted).ToListAsync(ct);
+        var assignments = await _db.TeacherAssignments.Where(t => t.SchoolId == SchoolId && t.ClassId == id && !t.IsDeleted).ToListAsync(ct);
+
+        foreach (var section in sections) section.IsDeleted = true;
+        foreach (var classSubject in classSubjects) classSubject.IsDeleted = true;
+        foreach (var assignment in assignments) assignment.IsDeleted = true;
+        entity.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteSectionAsync(int classId, int id, CancellationToken ct = default)
+    {
+        var entity = await _db.Sections.FirstOrDefaultAsync(s =>
+            s.Id == id && s.ClassId == classId && s.SchoolId == SchoolId && !s.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Section");
+
+        if (await _db.Students.AnyAsync(s => s.SchoolId == SchoolId && s.SectionId == id && !s.IsDeleted, ct))
+            throw DomainException.Conflict($"Section {entity.Name} has students enrolled. Move them to another section before deleting it.");
+
+        var assignments = await _db.TeacherAssignments.Where(t => t.SchoolId == SchoolId && t.SectionId == id && !t.IsDeleted).ToListAsync(ct);
+        foreach (var assignment in assignments) assignment.IsDeleted = true;
+        entity.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
+    }
+
+    public async Task DeleteSubjectAsync(int id, CancellationToken ct = default)
+    {
+        var entity = await _db.Subjects.FirstOrDefaultAsync(s => s.Id == id && s.SchoolId == SchoolId && !s.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Subject");
+
+        var usage = new List<string>();
+        if (await _db.Homework.AnyAsync(h => h.SchoolId == SchoolId && h.SubjectId == id && !h.IsDeleted, ct)) usage.Add("homework");
+        if (await _db.ExamSubjects.AnyAsync(es => es.SchoolId == SchoolId && es.SubjectId == id && !es.IsDeleted, ct)) usage.Add("exams");
+        if (await _db.ClassSubjects.AnyAsync(cs => cs.SchoolId == SchoolId && cs.SubjectId == id && !cs.IsDeleted, ct)) usage.Add("class subjects");
+        if (await _db.TeacherAssignments.AnyAsync(t => t.SchoolId == SchoolId && t.SubjectId == id && !t.IsDeleted, ct)) usage.Add("teacher assignments");
+        if (await _db.TimetableEntries.AnyAsync(t => t.SchoolId == SchoolId && t.SubjectId == id && !t.IsDeleted, ct)) usage.Add("timetable");
+
+        if (usage.Count > 0)
+            throw DomainException.Conflict($"{entity.Name} is in use by {string.Join(", ", usage)} and cannot be deleted.");
+
+        entity.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
+    }
+
     public async Task<List<SubjectDto>> GetSubjectsAsync(CancellationToken ct = default) =>
         await _db.Subjects.Where(s => s.SchoolId == SchoolId && !s.IsDeleted)
             .OrderBy(s => s.Name)
@@ -689,5 +742,36 @@ public sealed class AdministrationService
             Audience = announcement.Audience, PublishedAtUtc = announcement.PublishedAtUtc,
             ExpiresAtUtc = announcement.ExpiresAtUtc, CreatedAtUtc = announcement.CreatedAtUtc
         };
+    }
+
+    public async Task<AnnouncementDto> UpdateAnnouncementAsync(int id, SaveAnnouncementRequest request,
+        CancellationToken ct = default)
+    {
+        var announcement = await _db.Announcements
+            .FirstOrDefaultAsync(a => a.Id == id && a.SchoolId == SchoolId && !a.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Announcement");
+
+        announcement.Title = request.Title.Trim();
+        announcement.Body = request.Body.Trim();
+        announcement.Audience = request.Audience;
+        announcement.ExpiresAtUtc = request.ExpiresAtUtc;
+        await _uow.SaveChangesAsync(ct);
+
+        return new AnnouncementDto
+        {
+            Id = announcement.Id, Title = announcement.Title, Body = announcement.Body,
+            Audience = announcement.Audience, PublishedAtUtc = announcement.PublishedAtUtc,
+            ExpiresAtUtc = announcement.ExpiresAtUtc, CreatedAtUtc = announcement.CreatedAtUtc
+        };
+    }
+
+    public async Task DeleteAnnouncementAsync(int id, CancellationToken ct = default)
+    {
+        var announcement = await _db.Announcements
+            .FirstOrDefaultAsync(a => a.Id == id && a.SchoolId == SchoolId && !a.IsDeleted, ct)
+            ?? throw DomainException.NotFound("Announcement");
+
+        announcement.IsDeleted = true;
+        await _uow.SaveChangesAsync(ct);
     }
 }
