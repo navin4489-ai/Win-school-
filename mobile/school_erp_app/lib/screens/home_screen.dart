@@ -13,6 +13,8 @@ import 'results_screen.dart';
 import 'students_screen.dart';
 import 'web_portal_screen.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
 
@@ -48,10 +50,12 @@ class _HomeScreenState extends State<HomeScreen> {
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _error = exception.message;
-        _loading = false;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 

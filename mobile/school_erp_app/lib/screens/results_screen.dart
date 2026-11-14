@@ -7,6 +7,8 @@ import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class ResultsScreen extends StatefulWidget {
   const ResultsScreen({super.key});
 
@@ -43,15 +45,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
       });
       if (exams.isNotEmpty) {
         await _loadResults(exams.first);
-      } else {
-        setState(() => _loading = false);
       }
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _error = exception.message;
-        _loading = false;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -75,8 +77,15 @@ class _ResultsScreenState extends State<ResultsScreen> {
       setState(() {
         _results = [];
         _error = exception.message;
-        _loading = false;
       });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _results = [];
+        _error = _genericError;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -105,8 +114,8 @@ class _ResultsScreenState extends State<ResultsScreen> {
           if (_selected != null) ...[
             const SizedBox(height: 8),
             Text(
-              '${_selected!.examType} · ${date.format(DateTime.parse(_selected!.startDate))} – '
-              '${date.format(DateTime.parse(_selected!.endDate))}',
+              '${_selected!.examType} · ${formatDateOrDash(date, _selected!.startDate)} – '
+              '${formatDateOrDash(date, _selected!.endDate)}',
               style: const TextStyle(color: AppColors.muted, fontSize: 11),
             ),
           ],

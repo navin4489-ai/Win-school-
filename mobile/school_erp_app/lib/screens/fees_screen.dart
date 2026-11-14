@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +11,28 @@ import '../core/api_client.dart';
 import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
+
+const _genericError = 'Something went wrong. Please try again.';
+
+/// A random key generated once per checkout so retries never charge twice.
+String _newIdempotencyKey() {
+  final random = Random.secure();
+  return List.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
+}
+
+String _safeFileName(String name) => name.replaceAll(RegExp(r'[/\\:*?"<>|]'), '-');
+
+bool _looksLikePdf(List<int> bytes) =>
+    bytes.length >= 4 &&
+    bytes[0] == 0x25 &&
+    bytes[1] == 0x50 &&
+    bytes[2] == 0x44 &&
+    bytes[3] == 0x46;
+
+String _formatDate(DateFormat format, String? value) {
+  final date = parseDateOrNull(value);
+  return date == null ? '—' : format.format(date);
+}
 
 class FeesScreen extends StatefulWidget {
   const FeesScreen({super.key});
@@ -23,7 +46,9 @@ class _FeesScreenState extends State<FeesScreen> {
   Ledger? _ledger;
   List<Child> _children = [];
   bool _loading = false;
+  bool _loadingChildren = false;
   bool _busy = false;
+  bool _onlineEnabled = false;
   String? _error;
 
   bool get _isParent => context.read<AuthController>().user?.roleCode == 'Parent';
@@ -37,16 +62,38 @@ class _FeesScreenState extends State<FeesScreen> {
   @override
   void initState() {
     super.initState();
+    _loadPaymentConfig();
     if (_isParent) _loadChildren();
+  }
+
+  Future<void> _loadPaymentConfig() async {
+    try {
+      final response = await context.read<AuthController>().api.get('fees/payment-config');
+      if (!mounted) return;
+      final enabled = response is Map<String, dynamic> && response['onlineEnabled'] == true;
+      setState(() => _onlineEnabled = enabled);
+    } catch (_) {
+      if (mounted) setState(() => _onlineEnabled = false);
+    }
   }
 
   /// A parent works from their own children instead of typing a student id.
   Future<void> _loadChildren() async {
+    setState(() {
+      _loadingChildren = true;
+      _error = null;
+    });
     try {
-      final response = await context.read<AuthController>().api.get('parent/children') as List<dynamic>;
-      final children = response.whereType<Map<String, dynamic>>().map(Child.fromJson).toList();
+      final response = await context.read<AuthController>().api.get('parent/children');
+      final children = (response is List ? response : const [])
+          .whereType<Map<String, dynamic>>()
+          .map(Child.fromJson)
+          .toList();
       if (!mounted) return;
-      setState(() => _children = children);
+      setState(() {
+        _children = children;
+        _loadingChildren = false;
+      });
       if (children.isNotEmpty) {
         _studentId.text = children.first.studentId.toString();
         await _loadLedger();
@@ -54,6 +101,11 @@ class _FeesScreenState extends State<FeesScreen> {
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted && _loadingChildren) setState(() => _loadingChildren = false);
     }
   }
 
@@ -72,26 +124,31 @@ class _FeesScreenState extends State<FeesScreen> {
     try {
       final response = await context.read<AuthController>().api.get('fees/students/$id/ledger');
       if (!mounted) return;
-      setState(() {
-        _ledger = Ledger.fromJson(response as Map<String, dynamic>);
-        _loading = false;
-      });
+      setState(() => _ledger = Ledger.fromJson(response as Map<String, dynamic>));
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
         _ledger = null;
         _error = exception.message;
-        _loading = false;
       });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _ledger = null;
+        _error = _genericError;
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   /// Pays an installment through the gateway and confirms the payment.
   Future<void> _payOnline(Installment installment) async {
     final ledger = _ledger;
-    if (ledger == null || _busy) return;
+    if (ledger == null || _busy || !_onlineEnabled) return;
 
     final api = context.read<AuthController>().api;
+    final idempotencyKey = _newIdempotencyKey();
     setState(() {
       _busy = true;
       _error = null;
@@ -107,20 +164,14 @@ class _FeesScreenState extends State<FeesScreen> {
         },
       ) as Map<String, dynamic>;
 
-      if (!mounted) {
-        setState(() => _busy = false);
-        return;
-      }
+      if (!mounted) return;
 
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => _CheckoutDialog(order: PaymentOrder.fromJson(order)),
       );
 
-      if (confirmed != true || !mounted) {
-        setState(() => _busy = false);
-        return;
-      }
+      if (confirmed != true || !mounted) return;
 
       final payment = await api.post(
         'fees/payments/online',
@@ -129,7 +180,7 @@ class _FeesScreenState extends State<FeesScreen> {
           'amount': installment.balance,
           'gatewayOrderId': order['orderId'],
           'gatewayPaymentId': order['paymentId'],
-          'idempotencyKey': DateTime.now().microsecondsSinceEpoch.toString(),
+          'idempotencyKey': idempotencyKey,
         },
       ) as Map<String, dynamic>;
 
@@ -143,10 +194,12 @@ class _FeesScreenState extends State<FeesScreen> {
       await _loadLedger();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = exception.message;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -155,30 +208,40 @@ class _FeesScreenState extends State<FeesScreen> {
   Future<void> _downloadDocument(String path, String fileName) async {
     final api = context.read<AuthController>().api;
     final schoolName = context.read<AuthController>().user?.schoolName ?? 'the school';
-    setState(() => _busy = true);
+    final safeName = _safeFileName(fileName);
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
 
     try {
       final bytes = await api.download(path);
-      final directory = await getApplicationDocumentsDirectory();
-      final file = File('${directory.path}/$fileName');
-      await file.writeAsBytes(bytes);
+      if (!_looksLikePdf(bytes)) {
+        if (!mounted) return;
+        setState(() => _error = 'The server did not return a valid PDF document.');
+        return;
+      }
+      final directory = await getTemporaryDirectory();
+      final file = File('${directory.path}/$safeName');
+      await file.writeAsBytes(bytes, flush: true);
 
       if (!mounted) return;
       await SharePlus.instance.share(
         ShareParams(
-          files: [XFile(file.path)],
-          subject: fileName,
+          files: [XFile(file.path, mimeType: 'application/pdf')],
+          subject: safeName,
           text: 'Fee document from $schoolName',
         ),
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$fileName saved to ${directory.path}')),
       );
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() => _error = exception.message);
+    } on FileSystemException {
+      if (!mounted) return;
+      setState(() => _error = 'The document could not be saved on this device.');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -197,14 +260,17 @@ class _FeesScreenState extends State<FeesScreen> {
     );
     if (result == null || !mounted) return;
 
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final payment = await context.read<AuthController>().api.post('fees/payments', body: {
         'studentId': ledger.studentId,
         'feeInstallmentId': installment?.id,
         'amount': result['amount'],
         'mode': result['mode'],
-        'idempotencyKey': DateTime.now().microsecondsSinceEpoch.toString(),
+        'idempotencyKey': result['idempotencyKey'],
       }) as Map<String, dynamic>;
 
       if (!mounted) return;
@@ -215,13 +281,16 @@ class _FeesScreenState extends State<FeesScreen> {
           ),
         ),
       );
+      setState(() => _loading = false);
       await _loadLedger();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _loading = false;
-        _error = exception.message;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 
@@ -244,6 +313,17 @@ class _FeesScreenState extends State<FeesScreen> {
                       children: [
                         const Text('My children', style: TextStyle(fontWeight: FontWeight.w700)),
                         const SizedBox(height: 8),
+                        if (_loadingChildren)
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 8),
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else if (_children.isEmpty)
+                          const Text(
+                            'No children are linked to your account yet.',
+                            style: TextStyle(color: AppColors.muted, fontSize: 12),
+                          )
+                        else
                         Wrap(
                           spacing: 8,
                           runSpacing: 6,
@@ -298,13 +378,19 @@ class _FeesScreenState extends State<FeesScreen> {
               child: Center(child: CircularProgressIndicator()),
             )
           else if (_ledger == null)
-            const Card(
+            Card(
               child: Padding(
-                padding: EdgeInsets.all(26),
+                padding: const EdgeInsets.all(26),
                 child: Center(
                   child: Text(
-                    'Enter a student ID to view the fee ledger.',
-                    style: TextStyle(color: AppColors.muted),
+                    _isParent
+                        ? (_loadingChildren
+                            ? 'Loading your children…'
+                            : _children.isEmpty
+                                ? 'There are no fee records to show.'
+                                : 'Select a child to view the fee ledger.')
+                        : 'Enter a student ID to view the fee ledger.',
+                    style: const TextStyle(color: AppColors.muted),
                   ),
                 ),
               ),
@@ -370,6 +456,12 @@ class _FeesScreenState extends State<FeesScreen> {
                           onPressed: _ledger!.balance > 0 ? () => _recordPayment(null) : null,
                           child: const Text('Record payment'),
                         ),
+                      ),
+                    ] else if (_ledger!.balance > 0 && !_onlineEnabled) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Pay at the school office',
+                        style: TextStyle(fontSize: 12, color: AppColors.muted),
                       ),
                     ] else if (_ledger!.balance > 0) ...[
                       const SizedBox(height: 12),
@@ -437,7 +529,7 @@ class _FeesScreenState extends State<FeesScreen> {
                     ),
                     title: Text(installment.name, style: const TextStyle(fontSize: 13)),
                     subtitle: Text(
-                      'Due ${DateFormat('dd MMM yyyy').format(DateTime.parse(installment.dueDate))} · ${installment.status}'
+                      'Due ${_formatDate(DateFormat('dd MMM yyyy'), installment.dueDate)} · ${installment.status}'
                       '${installment.penaltyAmount > 0 ? ' · late fee ${money.format(installment.penaltyAmount)}' : ''}',
                       style: const TextStyle(fontSize: 10),
                     ),
@@ -458,7 +550,12 @@ class _FeesScreenState extends State<FeesScreen> {
                             ),
                             child: const Text('Pay', style: TextStyle(fontSize: 11)),
                           ),
-                        if (installment.balance > 0 && !canCollect)
+                        if (installment.balance > 0 && !canCollect && !_onlineEnabled)
+                          const Text(
+                            'Pay at the school office',
+                            style: TextStyle(fontSize: 10, color: AppColors.muted),
+                          ),
+                        if (installment.balance > 0 && !canCollect && _onlineEnabled)
                           TextButton(
                             onPressed: _busy ? null : () => _payOnline(installment),
                             style: TextButton.styleFrom(
@@ -534,10 +631,9 @@ class _CheckoutDialog extends StatelessWidget {
               style: const TextStyle(color: AppColors.muted, fontSize: 12),
             ),
           const SizedBox(height: 12),
-          Text(
-            'Test gateway (${order.gateway}) — no real money moves. The amount is verified '
-            'against the order the school server created.',
-            style: const TextStyle(color: AppColors.muted, fontSize: 11),
+          const Text(
+            'The amount is verified against the order the school server created.',
+            style: TextStyle(color: AppColors.muted, fontSize: 11),
           ),
         ],
       ),
@@ -601,6 +697,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   late final TextEditingController _amount;
   String _mode = 'Cash';
   String? _error;
+  final String _idempotencyKey = _newIdempotencyKey();
 
   @override
   void initState() {
@@ -622,7 +719,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       setState(() => _error = 'Enter a valid amount.');
       return;
     }
-    Navigator.of(context).pop({'amount': amount, 'mode': _mode});
+    Navigator.of(context).pop({'amount': amount, 'mode': _mode, 'idempotencyKey': _idempotencyKey});
   }
 
   @override

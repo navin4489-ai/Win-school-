@@ -7,6 +7,8 @@ import '../core/models.dart';
 import '../core/theme.dart';
 import 'student_detail_screen.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class StudentsScreen extends StatefulWidget {
   const StudentsScreen({super.key});
 
@@ -72,11 +74,17 @@ class _StudentsScreenState extends State<StudentsScreen> {
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _error = exception.message;
-        _loading = false;
-        _loadingMore = false;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _loadingMore = false;
+        });
+      }
     }
   }
 

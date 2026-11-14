@@ -7,6 +7,8 @@ import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -48,10 +50,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _error = exception.message;
-        _loading = false;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -81,6 +85,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(exception.message), backgroundColor: AppColors.red),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(_genericError), backgroundColor: AppColors.red),
       );
     }
   }
@@ -159,7 +168,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                         ),
                                       ),
                                       Text(
-                                        date.format(DateTime.parse(item.createdAtUtc).toLocal()),
+                                        formatDateOrDash(date, item.createdAtUtc, utc: true),
                                         style: const TextStyle(
                                           color: AppColors.muted,
                                           fontSize: 9,

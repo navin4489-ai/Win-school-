@@ -7,6 +7,8 @@ import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
 
@@ -56,6 +58,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _error = exception.message;
         _loading = false;
       });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 
@@ -79,6 +86,9 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
     }
   }
 
@@ -124,6 +134,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
         _error = exception.message;
         _loading = false;
       });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted && _loading) setState(() => _loading = false);
     }
   }
 
@@ -178,8 +193,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
       await _loadRoster();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() => _saving = false);
       _showError(exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      _showError(_genericError);
+    } finally {
+      if (mounted && _saving) setState(() => _saving = false);
     }
   }
 

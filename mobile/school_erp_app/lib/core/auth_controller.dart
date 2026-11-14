@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
@@ -16,6 +17,8 @@ class AuthController extends ChangeNotifier {
   static const _userKey = 'school_erp_user';
   static const _serverKey = 'school_erp_server';
   static const _rawUserKey = 'school_erp_user_raw';
+
+  static const _secure = FlutterSecureStorage();
 
   final ApiClient api;
 
@@ -38,8 +41,7 @@ class AuthController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     final server = prefs.getString(_serverKey);
     if (server != null && server.isNotEmpty) api.baseUrl = server;
-    api.accessToken = prefs.getString(_accessKey);
-    api.refreshToken = prefs.getString(_refreshKey);
+    await _restoreTokens(prefs);
     rawUserJson = prefs.getString(_rawUserKey);
 
     final rawUser = prefs.getString(_userKey);
@@ -91,8 +93,8 @@ class AuthController extends ChangeNotifier {
 
   /// Renews the session so a freshly issued token can be handed to the web portal.
   Future<String?> freshAccessToken() async {
-    await _refreshSession();
-    return api.accessToken;
+    final ok = await api.refreshOnce();
+    return ok ? api.accessToken : null;
   }
 
   Future<void> setServerUrl(String value) async {
@@ -125,8 +127,9 @@ class AuthController extends ChangeNotifier {
       await _applySession(response as Map<String, dynamic>);
       return true;
     } catch (_) {
+      final hadSession = user != null || api.accessToken != null;
       await _clear();
-      notifyListeners();
+      if (hadSession) notifyListeners();
       return false;
     }
   }
@@ -146,8 +149,8 @@ class AuthController extends ChangeNotifier {
     rawUserJson = jsonEncode(profile);
 
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_accessKey, access);
-    await prefs.setString(_refreshKey, refresh);
+    await _secure.write(key: _accessKey, value: access);
+    await _secure.write(key: _refreshKey, value: refresh);
     await prefs.setString(_userKey, jsonEncode(user!.toJson()));
     await prefs.setString(_rawUserKey, rawUserJson!);
   }
@@ -161,7 +164,31 @@ class AuthController extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_accessKey);
     await prefs.remove(_refreshKey);
+    try {
+      await _secure.delete(key: _accessKey);
+      await _secure.delete(key: _refreshKey);
+    } catch (_) {
+      // Nothing more to clear if secure storage is unavailable.
+    }
     await prefs.remove(_userKey);
     await prefs.remove(_rawUserKey);
+  }
+
+  Future<void> _restoreTokens(SharedPreferences prefs) async {
+    final legacyAccess = prefs.getString(_accessKey);
+    final legacyRefresh = prefs.getString(_refreshKey);
+    try {
+      if (legacyAccess != null || legacyRefresh != null) {
+        if (legacyAccess != null) await _secure.write(key: _accessKey, value: legacyAccess);
+        if (legacyRefresh != null) await _secure.write(key: _refreshKey, value: legacyRefresh);
+        await prefs.remove(_accessKey);
+        await prefs.remove(_refreshKey);
+      }
+      api.accessToken = await _secure.read(key: _accessKey);
+      api.refreshToken = await _secure.read(key: _refreshKey);
+    } catch (_) {
+      api.accessToken = legacyAccess;
+      api.refreshToken = legacyRefresh;
+    }
   }
 }

@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 class UserProfile {
   const UserProfile({
     required this.id,
@@ -664,15 +666,17 @@ class StudentDetail {
       );
 }
 
-int asInt(dynamic value) {
-  if (value is int) return value;
-  return int.tryParse(value?.toString() ?? '') ?? 0;
-}
+int asInt(dynamic value) => asIntOrNull(value) ?? 0;
 
 int? asIntOrNull(dynamic value) {
   if (value == null) return null;
   if (value is int) return value;
-  return int.tryParse(value.toString());
+  if (value is num) return value.isFinite ? value.toInt() : null;
+  final text = value.toString().trim();
+  final parsed = int.tryParse(text);
+  if (parsed != null) return parsed;
+  final asNum = double.tryParse(text);
+  return asNum != null && asNum.isFinite ? asNum.toInt() : null;
 }
 
 double asDouble(dynamic value) {
@@ -684,5 +688,31 @@ String asText(dynamic value) => value?.toString() ?? '';
 
 DateTime? _dateTimeOrNull(dynamic value) {
   if (value == null) return null;
-  return DateTime.tryParse(value.toString())?.toLocal();
+  return parseUtc(value);
+}
+
+/// Parses a server timestamp. Values without a Z or offset are treated as UTC.
+DateTime? parseUtc(Object? v) {
+  if (v == null) return null;
+  if (v is DateTime) return v.toLocal();
+  var text = v.toString().trim();
+  if (text.isEmpty) return null;
+  final hasTime = text.contains('T') || text.contains(' ');
+  final hasZone = RegExp(r'([zZ]|[+-]\d{2}:?\d{2})$').hasMatch(text);
+  if (hasTime && !hasZone) text = 'Z';
+  return DateTime.tryParse(text)?.toLocal();
+}
+
+/// Parses a calendar date (no time zone shift); returns null on bad input.
+DateTime? parseDateOrNull(Object? v) {
+  if (v == null) return null;
+  final text = v.toString().trim();
+  if (text.isEmpty) return null;
+  return DateTime.tryParse(text);
+}
+
+/// Formats a server date for display, returning an em dash for missing or bad values.
+String formatDateOrDash(DateFormat format, Object? value, {bool utc = false}) {
+  final date = utc ? parseUtc(value) : parseDateOrNull(value);
+  return date == null ? '—' : format.format(date);
 }

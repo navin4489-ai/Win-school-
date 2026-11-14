@@ -5,6 +5,8 @@ import '../core/api_client.dart';
 import '../core/auth_controller.dart';
 import '../core/theme.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -37,6 +39,11 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(exception.message), backgroundColor: AppColors.red),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text(_genericError), backgroundColor: AppColors.red),
       );
     }
   }

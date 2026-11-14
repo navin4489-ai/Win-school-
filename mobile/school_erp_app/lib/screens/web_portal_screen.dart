@@ -34,9 +34,11 @@ class _WebPortalScreenState extends State<WebPortalScreen> {
       ..setNavigationDelegate(NavigationDelegate(
         onPageFinished: _onPageFinished,
         onWebResourceError: (error) {
-          if (error.isForMainFrame ?? true) {
-            setState(() => _error =
-                'Could not open this page. Check your internet connection.');
+          if ((error.isForMainFrame ?? true) && mounted) {
+            setState(() {
+              _loading = false;
+              _error = 'Could not open this page. Check your internet connection.';
+            });
           }
         },
       ));
@@ -45,17 +47,25 @@ class _WebPortalScreenState extends State<WebPortalScreen> {
 
   Future<void> _start() async {
     final auth = context.read<AuthController>();
-    final token = await auth.freshAccessToken();
-    if (!mounted) return;
-    if (token == null || auth.user == null) {
+    try {
+      final token = await auth.freshAccessToken();
+      if (!mounted) return;
+      if (token == null || auth.user == null) {
+        setState(() {
+          _loading = false;
+          _error = 'Your session has expired. Please sign in again.';
+        });
+        return;
+      }
+      // Load a static file on the portal's origin first so its storage can be primed.
+      await _controller.loadRequest(Uri.parse('${auth.webUrl}/logo.svg'));
+    } catch (_) {
+      if (!mounted) return;
       setState(() {
         _loading = false;
-        _error = 'Your session has expired. Please sign in again.';
+        _error = 'Something went wrong. Please try again.';
       });
-      return;
     }
-    // Load a static file on the portal's origin first so its storage can be primed.
-    await _controller.loadRequest(Uri.parse('${auth.webUrl}/logo.svg'));
   }
 
   Future<void> _onPageFinished(String url) async {

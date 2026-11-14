@@ -7,6 +7,8 @@ import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
 
+const _genericError = 'Something went wrong. Please try again.';
+
 class StudentDetailScreen extends StatefulWidget {
   const StudentDetailScreen({super.key, required this.studentId});
 
@@ -19,6 +21,7 @@ class StudentDetailScreen extends StatefulWidget {
 class _StudentDetailScreenState extends State<StudentDetailScreen> {
   StudentDetail? _student;
   Ledger? _ledger;
+  bool _ledgerFailed = false;
   bool _loading = true;
   String? _error;
 
@@ -32,13 +35,19 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
     setState(() {
       _loading = true;
       _error = null;
+      _ledgerFailed = false;
     });
 
     try {
       final api = context.read<AuthController>().api;
+      var ledgerFailed = false;
       final responses = await Future.wait([
         api.get('students/${widget.studentId}'),
-        api.get('fees/students/${widget.studentId}/ledger').catchError((_) => null),
+        api.get('fees/students/${widget.studentId}/ledger').catchError((Object error) {
+          // A missing fee permission is expected for some roles; anything else is reported.
+          ledgerFailed = !(error is ApiException && error.statusCode == 403);
+          return null;
+        }),
       ]);
 
       if (!mounted) return;
@@ -46,14 +55,16 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
         _student = StudentDetail.fromJson(responses[0] as Map<String, dynamic>);
         final ledger = responses[1];
         _ledger = ledger is Map<String, dynamic> ? Ledger.fromJson(ledger) : null;
-        _loading = false;
+        _ledgerFailed = ledgerFailed || (ledger != null && _ledger == null);
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _error = exception.message;
-        _loading = false;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
@@ -148,6 +159,12 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                             ],
                           ),
                           const SizedBox(height: 14),
+                        ] else if (_ledgerFailed) ...[
+                          const Text(
+                            'Fees could not be loaded',
+                            style: TextStyle(color: AppColors.muted, fontSize: 12),
+                          ),
+                          const SizedBox(height: 14),
                         ],
                         Card(
                           child: Padding(
@@ -162,7 +179,7 @@ class _StudentDetailScreenState extends State<StudentDetailScreen> {
                                 const SizedBox(height: 12),
                                 _DetailRow(
                                   label: 'Date of birth',
-                                  value: date.format(DateTime.parse(_student!.dateOfBirth)),
+                                  value: formatDateOrDash(date, _student!.dateOfBirth),
                                 ),
                                 _DetailRow(label: 'Gender', value: _student!.gender),
                                 _DetailRow(label: 'Roll no.', value: _student!.rollNo ?? '—'),

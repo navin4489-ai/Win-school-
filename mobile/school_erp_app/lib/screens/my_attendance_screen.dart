@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:camera/camera.dart';
@@ -10,6 +11,8 @@ import '../core/api_client.dart';
 import '../core/auth_controller.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
+
+const _genericError = 'Something went wrong. Please try again.';
 
 /// Staff attendance: check in and check out with a photo taken from the front
 /// camera and the current location attached to the register entry.
@@ -32,6 +35,8 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
 
   Position? _position;
   String? _photoUrl;
+  bool _locating = false;
+  bool _needsSettings = false;
 
   @override
   void initState() {
@@ -62,42 +67,57 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
         },
       );
       if (!mounted) return;
-      setState(() {
-        _register = StaffRegister.fromJson(response as Map<String, dynamic>);
-        _loading = false;
-      });
+      setState(() => _register = StaffRegister.fromJson(response as Map<String, dynamic>));
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _error = exception.message;
-        _loading = false;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
   }
 
   // ---------------------------------------------------------------- camera
 
-  Future<void> _startCamera() async {
-    setState(() => _error = null);
-
-    final cameras = await availableCameras();
-    if (cameras.isEmpty) {
-      setState(() => _error = 'No camera is available on this device.');
-      return;
+  String _cameraMessage(CameraException exception) {
+    switch (exception.code) {
+      case 'CameraAccessDenied':
+      case 'CameraAccessDeniedWithoutPrompt':
+      case 'CameraAccessRestricted':
+        return 'Camera access is turned off. Allow camera access for this app in Settings.';
+      default:
+        return 'The camera could not be started. Please try again.';
     }
+  }
 
-    // Prefer the front camera so the teacher photographs themselves.
-    final front = cameras.where((camera) => camera.lensDirection == CameraLensDirection.front).toList();
-    final selected = front.isNotEmpty ? front.first : cameras.first;
+  Future<void> _startCamera() async {
+    setState(() {
+      _error = null;
+      _needsSettings = false;
+    });
 
-    final controller = CameraController(
-      selected,
-      ResolutionPreset.medium,
-      enableAudio: false,
-      imageFormatGroup: ImageFormatGroup.jpeg,
-    );
-
+    CameraController? controller;
     try {
+      final cameras = await availableCameras();
+      if (!mounted) return;
+      if (cameras.isEmpty) {
+        setState(() => _error = 'No camera is available on this device.');
+        return;
+      }
+
+      // Prefer the front camera so the teacher photographs themselves.
+      final front = cameras.where((camera) => camera.lensDirection == CameraLensDirection.front).toList();
+      final selected = front.isNotEmpty ? front.first : cameras.first;
+
+      controller = CameraController(
+        selected,
+        ResolutionPreset.medium,
+        enableAudio: false,
+        imageFormatGroup: ImageFormatGroup.jpeg,
+      );
+
       await controller.initialize();
       if (!mounted) {
         await controller.dispose();
@@ -108,19 +128,30 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
         _cameraReady = true;
       });
     } on CameraException catch (exception) {
-      setState(() => _error = 'The camera could not be started: ${exception.description ?? exception.code}');
+      await controller?.dispose();
+      if (!mounted) return;
+      setState(() => _error = _cameraMessage(exception));
+    } catch (_) {
+      await controller?.dispose();
+      if (!mounted) return;
+      setState(() => _error = 'The camera could not be started. Please try again.');
     }
   }
 
   Future<void> _capturePhoto() async {
     final controller = _camera;
-    if (controller == null || !controller.value.isTakingPicture) {
+    if (controller == null ||
+        !controller.value.isInitialized ||
+        controller.value.isTakingPicture) {
       setState(() => _error = 'The camera is not ready yet.');
       return;
     }
 
     final api = context.read<AuthController>().api;
-    setState(() => _capturing = true);
+    setState(() {
+      _capturing = true;
+      _error = null;
+    });
 
     try {
       final shot = await controller.takePicture();
@@ -132,25 +163,31 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
         fileName: 'attendance-${DateTime.now().millisecondsSinceEpoch}.jpg',
         bytes: bytes,
         contentType: 'image/jpeg',
-      ) as Map<String, dynamic>;
+      );
 
       if (!mounted) return;
+      final url = uploaded is Map<String, dynamic> ? uploaded['url']?.toString() : null;
       setState(() {
-        _photoUrl = uploaded['url']?.toString();
-        _capturing = false;
+        _photoUrl = url;
+        if (url == null) _error = 'The photo was not accepted by the server. Please try again.';
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _capturing = false;
-        _error = exception.message;
-      });
+      setState(() => _error = exception.message);
     } on CameraException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _capturing = false;
-        _error = 'The photo could not be taken: ${exception.description ?? exception.code}';
-      });
+      setState(() => _error = _cameraMessage(exception));
+    } on FileSystemException {
+      if (!mounted) return;
+      setState(() => _error = 'The photo could not be read. Please take it again.');
+    } on SocketException {
+      if (!mounted) return;
+      setState(() => _error = 'Cannot reach the server. Check your internet connection.');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted) setState(() => _capturing = false);
     }
   }
 
@@ -168,10 +205,13 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
   Future<void> _captureLocation() async {
     setState(() {
       _error = null;
+      _needsSettings = false;
+      _locating = true;
     });
 
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
+        if (!mounted) return;
         setState(() => _error = 'Turn on location services to record where you checked in.');
         return;
       }
@@ -180,20 +220,35 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
-      if (permission == LocationPermission.denied ||
-          permission == LocationPermission.deniedForever) {
+      if (!mounted) return;
+      if (permission == LocationPermission.deniedForever) {
+        setState(() {
+          _error = 'Location access is blocked. Allow location for this app in Settings.';
+          _needsSettings = true;
+        });
+        return;
+      }
+      if (permission == LocationPermission.denied) {
         setState(() => _error = 'Location permission is required to record attendance.');
         return;
       }
 
       final position = await Geolocator.getCurrentPosition(
-        locationSettings: const LocationSettings(accuracy: LocationAccuracy.high),
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          timeLimit: Duration(seconds: 20),
+        ),
       );
       if (!mounted) return;
       setState(() => _position = position);
-    } on Exception catch (exception) {
+    } on TimeoutException {
       if (!mounted) return;
-      setState(() => _error = 'The location could not be determined: $exception');
+      setState(() => _error = 'Your location could not be found in time. Move to an open area and try again.');
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'Your location could not be determined. Please try again.');
+    } finally {
+      if (mounted) setState(() => _locating = false);
     }
   }
 
@@ -231,10 +286,12 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      setState(() {
-        _busy = false;
-        _error = exception.message;
-      });
+      setState(() => _error = exception.message);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = _genericError);
+    } finally {
+      if (mounted && _busy) setState(() => _busy = false);
     }
   }
 
@@ -253,7 +310,17 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
               color: const Color(0xFFFDE8E6),
               child: Padding(
                 padding: const EdgeInsets.all(14),
-                child: Text(_error!, style: const TextStyle(color: AppColors.red, fontSize: 12)),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(_error!, style: const TextStyle(color: AppColors.red, fontSize: 12)),
+                    if (_needsSettings)
+                      TextButton(
+                        onPressed: () => Geolocator.openAppSettings(),
+                        child: const Text('Open settings'),
+                      ),
+                  ],
+                ),
               ),
             ),
           if (_loading)
@@ -325,7 +392,7 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: _busy ? null : _captureLocation,
+                          onPressed: _busy || _locating ? null : _captureLocation,
                           icon: const Icon(Icons.my_location, size: 16),
                           label: Text(_position == null ? 'Get location' : 'Location ok'),
                         ),
@@ -415,7 +482,7 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
                                 : AppColors.green,
                       ),
                       title: Text(
-                        DateFormat('dd MMM yyyy').format(DateTime.parse(record.date)),
+                        _date(record.date),
                         style: const TextStyle(fontSize: 13),
                       ),
                       subtitle: Text(
@@ -432,6 +499,11 @@ class _MyAttendanceScreenState extends State<MyAttendanceScreen> {
         ],
       ),
     );
+  }
+
+  String _date(String value) {
+    final date = parseDateOrNull(value);
+    return date == null ? '—' : DateFormat('dd MMM yyyy').format(date);
   }
 
   String _time(DateTime? value) =>
