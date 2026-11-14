@@ -11,6 +11,18 @@ public sealed class UnitOfWork : IUnitOfWork
 
     public Task<int> SaveChangesAsync(CancellationToken ct = default) => _db.SaveChangesAsync(ct);
 
+    public async Task LockAsync(string key, CancellationToken ct = default)
+    {
+        if (!_db.Database.IsRelational() || _db.Database.CurrentTransaction is null) return;
+
+        var provider = _db.Database.ProviderName ?? string.Empty;
+        if (provider.Contains("Npgsql", StringComparison.Ordinal))
+            await _db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock(hashtext({key}))", ct);
+        else if (provider.Contains("SqlServer", StringComparison.Ordinal))
+            await _db.Database.ExecuteSqlInterpolatedAsync(
+                $"EXEC sp_getapplock @Resource = {key}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 15000", ct);
+    }
+
     public async Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> action,
         CancellationToken ct = default)
     {
@@ -41,6 +53,20 @@ public sealed class UnitOfWork : IUnitOfWork
 
 public sealed class SystemClock : IDateTimeProvider
 {
+    // Schools run on Indian Standard Time; "today" must flip at local midnight, not UTC.
+    private static readonly TimeZoneInfo SchoolZone = ResolveZone();
+
     public DateTime UtcNow => DateTime.UtcNow;
-    public DateOnly Today => DateOnly.FromDateTime(DateTime.UtcNow);
+    public DateOnly Today => DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, SchoolZone));
+
+    private static TimeZoneInfo ResolveZone()
+    {
+        foreach (var id in new[] { Environment.GetEnvironmentVariable("SCHOOL_TIME_ZONE") ?? "Asia/Kolkata", "India Standard Time" })
+        {
+            try { return TimeZoneInfo.FindSystemTimeZoneById(id); }
+            catch (TimeZoneNotFoundException) { }
+            catch (InvalidTimeZoneException) { }
+        }
+        return TimeZoneInfo.CreateCustomTimeZone("IST", TimeSpan.FromHours(5.5), "IST", "IST");
+    }
 }

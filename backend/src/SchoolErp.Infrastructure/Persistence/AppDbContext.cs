@@ -103,6 +103,7 @@ public sealed class AppDbContext : DbContext, IAppDbContext
 
     // --- IAppDbContext ---
     public DbSet<School> Schools => Set<School>();
+    public DbSet<StoredBlob> StoredBlobs => Set<StoredBlob>();
     public DbSet<Branch> Branches => Set<Branch>();
     public DbSet<AcademicSession> AcademicSessions => Set<AcademicSession>();
     public DbSet<SystemConfiguration> SystemConfigurations => Set<SystemConfiguration>();

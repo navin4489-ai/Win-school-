@@ -33,7 +33,8 @@ public sealed class DummyPaymentGateway : IPaymentGateway
         _timeProvider = timeProvider;
     }
 
-    public string Name => "Razorpay (test mode)";
+    public string Name => "Test gateway (no real money)";
+    public bool IsEnabled => true;
 
     public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, CancellationToken ct = default)
     {

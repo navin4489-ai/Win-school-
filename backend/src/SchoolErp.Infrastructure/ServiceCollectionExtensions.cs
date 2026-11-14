@@ -66,9 +66,27 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IDateTimeProvider, SystemClock>();
         services.AddSingleton<IPasswordHasher, PasswordHasherService>();
         services.AddScoped<ITokenService, TokenService>();
-        services.AddScoped<IFileStorage, LocalFileStorage>();
+        // Uploads: database by default (survives redeploys); "Local" keeps them on disk.
+        if (string.Equals(configuration["Storage:Provider"], "Local", StringComparison.OrdinalIgnoreCase))
+            services.AddScoped<IFileStorage, LocalFileStorage>();
+        else
+            services.AddScoped<IFileStorage, DatabaseFileStorage>();
         services.AddScoped<INotificationSender, LogNotificationSender>();
-        services.AddScoped<IPaymentGateway, DummyPaymentGateway>();
+
+        // Online payments: "Dummy" (test gateway, never in Production) or disabled.
+        var paymentProvider = configuration["Payments:Provider"] ?? "Disabled";
+        var isProduction = string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Production", StringComparison.OrdinalIgnoreCase);
+        if (string.Equals(paymentProvider, "Dummy", StringComparison.OrdinalIgnoreCase))
+        {
+            if (isProduction)
+                throw new InvalidOperationException(
+                    "Payments:Provider=Dummy is a test gateway and cannot be used in Production.");
+            services.AddScoped<IPaymentGateway, DummyPaymentGateway>();
+        }
+        else
+        {
+            services.AddScoped<IPaymentGateway, DisabledPaymentGateway>();
+        }
         services.AddScoped<DbInitializer>();
 
         // Live notification fan-out is process local; a multi-node deployment must
@@ -85,6 +103,9 @@ public static class ServiceCollectionExtensions
             .Validate(o => !string.IsNullOrWhiteSpace(o.Audience), "Jwt:Audience is required.")
             .Validate(o => !string.IsNullOrWhiteSpace(o.SigningKey) && o.SigningKey.Length >= 32,
                 "Jwt:SigningKey must be at least 32 characters.")
+            .Validate(o => !isProduction || !(o.SigningKey ?? "").StartsWith("dev-only", StringComparison.OrdinalIgnoreCase)
+                                          && !(o.SigningKey ?? "").StartsWith("local-compose", StringComparison.OrdinalIgnoreCase),
+                "Jwt:SigningKey is a development key; set a secret key in Production.")
             .ValidateOnStart();
 
         var jwt = configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new JwtOptions();
@@ -109,6 +130,28 @@ public static class ServiceCollectionExtensions
                     ClockSkew = TimeSpan.FromSeconds(jwt.ClockSkewSeconds < 0 ? 30 : jwt.ClockSkewSeconds),
                     NameClaimType = "name",
                     RoleClaimType = "role"
+                };
+                // A token issued before a password reset, deactivation or role change is
+                // rejected immediately instead of living until it expires.
+                options.Events = new JwtBearerEvents
+                {
+                    OnTokenValidated = async context =>
+                    {
+                        var principal = context.Principal;
+                        if (!int.TryParse(principal?.FindFirst("sub")?.Value, out var userId) ||
+                            !int.TryParse(principal?.FindFirst("token_version")?.Value, out var version))
+                        {
+                            context.Fail("Invalid token.");
+                            return;
+                        }
+
+                        var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                        var current = await db.UserAccounts.IgnoreQueryFilters()
+                            .Where(u => u.Id == userId && !u.IsDeleted && u.IsActive)
+                            .Select(u => (int?)u.TokenVersion)
+                            .FirstOrDefaultAsync(context.HttpContext.RequestAborted);
+                        if (current is null || current.Value != version) context.Fail("Session revoked.");
+                    }
                 };
             });
 

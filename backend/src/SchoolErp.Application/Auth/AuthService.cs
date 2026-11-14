@@ -74,9 +74,22 @@ public sealed class AuthService
         // account whose password matches; if that is still ambiguous, never guess.
         if (candidates.Count > 1)
         {
-            var matches = candidates.Where(u => _passwords.Verify(u.PasswordHash, request.Password)).ToList();
+            var unlocked = candidates.Where(u => u.LockoutEndUtc is null || u.LockoutEndUtc <= now).ToList();
+            var matches = unlocked.Where(u => _passwords.Verify(u.PasswordHash, request.Password)).ToList();
             if (matches.Count == 0)
             {
+                // Every account this identifier could mean counts the failure, so guessing
+                // through an admission number or shared email still hits the lockout.
+                foreach (var candidate in unlocked)
+                {
+                    candidate.FailedLoginCount++;
+                    if (candidate.FailedLoginCount >= MaxFailedAttempts)
+                    {
+                        candidate.LockoutEndUtc = now.Add(LockoutDuration);
+                        candidate.FailedLoginCount = 0;
+                    }
+                }
+                await SaveLoginBookkeepingAsync(ct);
                 await AuditLoginAsync(null, normalized, false, "Invalid password", ct);
                 throw DomainException.Unauthorized();
             }

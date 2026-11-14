@@ -368,8 +368,28 @@ public sealed class PlatformService
         if (user is null || (user.SchoolId != _user.SchoolId && !_user.IsPlatformAdmin))
             throw DomainException.NotFound("User");
 
+        // Nobody may manage an account ranked at or above their own (e.g. a school
+        // administrator resetting the owner's or the super admin's password).
+        if (user.Id != _user.UserId)
+        {
+            var targetRole = await _db.Roles.IgnoreQueryFilters()
+                .Where(r => r.Id == user.RoleId).Select(r => r.Code).FirstOrDefaultAsync(ct) ?? string.Empty;
+            if (RoleRank(targetRole) >= CallerRank())
+                throw DomainException.Forbidden("You cannot manage an account with this role.");
+        }
+
         return user;
     }
+
+    private static int RoleRank(string roleCode) => roleCode switch
+    {
+        RoleCodes.SuperAdmin => 3,
+        RoleCodes.SchoolOwner => 2,
+        _ => 1
+    };
+
+    private int CallerRank() =>
+        _user.IsPlatformAdmin ? 4 : _user.IsInRole(RoleCodes.SchoolOwner) ? 3 : 2;
 
     private async Task<Role> LoadAssignableRoleAsync(int schoolId, int roleId, CancellationToken ct)
     {
@@ -379,6 +399,9 @@ public sealed class PlatformService
 
         if (role.Code == RoleCodes.SuperAdmin && !_user.IsPlatformAdmin)
             throw DomainException.Forbidden("Only the super admin can grant the Super Admin role.");
+
+        if (role.Code == RoleCodes.SchoolOwner && !_user.IsPlatformAdmin && !_user.IsInRole(RoleCodes.SchoolOwner))
+            throw DomainException.Forbidden("Only the school owner or the super admin can grant the School Owner role.");
 
         return role;
     }

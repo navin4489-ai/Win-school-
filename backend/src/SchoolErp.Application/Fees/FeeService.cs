@@ -275,6 +275,8 @@ public sealed class FeeService
 
     // ---------- Payments ----------
 
+    public object GetPaymentConfig() => new { onlineEnabled = _gateway.IsEnabled, gateway = _gateway.Name };
+
     /// <summary>
     /// Opens a payment session with the gateway. Parents may do this for their own
     /// children; staff need the fees.collect permission.
@@ -393,6 +395,11 @@ public sealed class FeeService
                 if (string.IsNullOrWhiteSpace(gatewayOrderId) || string.IsNullOrWhiteSpace(gatewayPaymentId))
                     throw DomainException.Validation("Online payments require a gateway order and payment id.");
 
+                var alreadyCredited = await _db.Payments.IgnoreQueryFilters()
+                    .AnyAsync(p => p.GatewayPaymentId == gatewayPaymentId && !p.IsDeleted, token);
+                if (alreadyCredited)
+                    throw DomainException.Conflict("This online payment has already been recorded.");
+
                 var verification = await _gateway.VerifyAsync(gatewayOrderId, gatewayPaymentId, request.Amount, token);
                 if (!verification.Success)
                 {
@@ -416,6 +423,14 @@ public sealed class FeeService
             }
 
             var school = await _db.Schools.FirstAsync(s => s.Id == SchoolId, token);
+            await _uow.LockAsync($"receipt-no-{SchoolId}", token);
+
+            // Late fee is settled first; record how much of this payment covered it so the
+            // receipt stays correct even if more late fee is added later.
+            var penaltyAlreadyCovered = Math.Max(0, installment.PaidAmount - installment.Amount);
+            var penaltyDue = Math.Max(0, installment.PenaltyAmount - penaltyAlreadyCovered);
+            var penaltyPortion = Math.Min(request.Amount, penaltyDue);
+
             var payment = new Payment
             {
                 SchoolId = SchoolId,
@@ -425,6 +440,7 @@ public sealed class FeeService
                 FeeInstallmentId = installment.Id,
                 ReceiptNo = await NextReceiptNoAsync(school.Code, token),
                 Amount = request.Amount,
+                PenaltyPortion = penaltyPortion,
                 Mode = request.Mode,
                 Status = PaymentStatus.Success,
                 PaidAtUtc = _clock.UtcNow,
@@ -526,9 +542,14 @@ public sealed class FeeService
         if (payment.Status is PaymentStatus.Failed or PaymentStatus.Pending)
             throw DomainException.Conflict("Only a successful payment can be refunded.");
 
-        var refundable = payment.Amount - payment.RefundedAmount;
+        var pending = await _db.Refunds
+            .Where(r => r.PaymentId == payment.Id && r.SchoolId == SchoolId && !r.IsDeleted && r.Status == RefundStatus.Pending)
+            .SumAsync(r => (decimal?)r.Amount, ct) ?? 0m;
+        var refundable = payment.Amount - payment.RefundedAmount - pending;
         if (request.Amount > refundable + 0.01m)
-            throw DomainException.Validation($"Refundable amount is {refundable:0.00}.");
+            throw DomainException.Validation(pending > 0
+                ? $"Refundable amount is {Math.Max(0, refundable):0.00} ({pending:0.00} is already waiting for approval)."
+                : $"Refundable amount is {Math.Max(0, refundable):0.00}.");
 
         var refund = new Refund
         {
@@ -554,6 +575,9 @@ public sealed class FeeService
             if (refund.Status != RefundStatus.Pending) throw DomainException.Conflict("Refund is not pending approval.");
 
             var payment = await _db.Payments.FirstAsync(p => p.Id == refund.PaymentId, token);
+            if (refund.Amount > payment.Amount - payment.RefundedAmount + 0.01m)
+                throw DomainException.Conflict(
+                    $"Only {payment.Amount - payment.RefundedAmount:0.00} of this payment can still be refunded.");
 
             // A cash, cheque or bank-transfer payment never touched the gateway, so there
             // is nothing to reverse there — the refund is simply recorded against the
@@ -586,7 +610,7 @@ public sealed class FeeService
                     installment.PaidAmount = Math.Max(0, Math.Round(installment.PaidAmount - refund.Amount, 2));
                     installment.Status = installment.PaidAmount <= 0
                         ? InstallmentStatus.Pending
-                        : installment.PaidAmount >= installment.Amount
+                        : installment.PaidAmount >= installment.TotalAmount
                             ? InstallmentStatus.Paid
                             : InstallmentStatus.PartiallyPaid;
                 }
@@ -754,17 +778,13 @@ public sealed class FeeService
             .FirstOrDefaultAsync(ct) ?? string.Empty;
 
         var installmentName = "Fee payment";
-        decimal penaltyTotal = 0m;
+        var penaltyTotal = payment.PenaltyPortion;
 
         if (payment.FeeInstallmentId is > 0)
         {
             var installment = await _db.FeeInstallments
                 .FirstOrDefaultAsync(i => i.Id == payment.FeeInstallmentId && !i.IsDeleted, ct);
-            if (installment is not null)
-            {
-                installmentName = installment.Name;
-                penaltyTotal = installment.PenaltyAmount;
-            }
+            if (installment is not null) installmentName = installment.Name;
         }
 
         return FeeDocumentBuilder.BuildReceipt(school, school.Code, student, className, payment,
@@ -931,7 +951,7 @@ public sealed class FeeService
         var quarters = 4;
         var baseAmount = Math.Round(net / quarters, 2, MidpointRounding.AwayFromZero);
         var remainder = net - (baseAmount * quarters);
-        var start = DateOnly.FromDateTime(DateTime.UtcNow);
+        var start = DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5.5)); // IST
 
         return Enumerable.Range(0, quarters).Select(i => new InstallmentInput
         {

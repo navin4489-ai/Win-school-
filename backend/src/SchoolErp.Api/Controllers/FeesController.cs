@@ -51,6 +51,11 @@ public sealed class FeesController : ControllerBase
     public async Task<ActionResult<PaymentDto>> RecordPayment(RecordPaymentRequest request, CancellationToken ct) =>
         Ok(await _fees.RecordPaymentAsync(request, ct));
 
+    /// <summary>Whether online payment is available (a real gateway is configured).</summary>
+    [HttpGet("payment-config")]
+    [Authorize(Policy = "permission:fees.read")]
+    public IActionResult PaymentConfig() => Ok(_fees.GetPaymentConfig());
+
     /// <summary>Opens a payment session at the gateway. Parents may do this for their own children.</summary>
     [HttpPost("payments/order")]
     [Authorize(Policy = "permission:fees.read")]

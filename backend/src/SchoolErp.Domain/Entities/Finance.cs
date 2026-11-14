@@ -61,7 +61,7 @@ public class FeeInstallment : AuditableEntity
     public decimal Balance => Math.Max(0, TotalAmount - PaidAmount);
 
     [System.ComponentModel.DataAnnotations.Schema.NotMapped]
-    public bool IsOverdue => Status != InstallmentStatus.Paid && DueDate < DateOnly.FromDateTime(DateTime.UtcNow);
+    public bool IsOverdue => Status != InstallmentStatus.Paid && DueDate < DateOnly.FromDateTime(DateTime.UtcNow.AddHours(5.5)); // IST
 }
 
 /// <summary>
@@ -98,6 +98,8 @@ public class Payment : AuditableEntity
     public int? CollectedBy { get; set; }
     public string? Remarks { get; set; }
     public decimal RefundedAmount { get; set; }
+    /// <summary>Part of this payment that settled late fees, fixed at the time of payment.</summary>
+    public decimal PenaltyPortion { get; set; }
 }
 
 public class PaymentTransaction : AuditableEntity

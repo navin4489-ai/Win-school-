@@ -19,6 +19,7 @@ builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        options.JsonSerializerOptions.Converters.Add(new SchoolErp.Api.UtcDateTimeConverter());
         options.JsonSerializerOptions.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
     });
 
@@ -57,6 +58,8 @@ builder.Services.AddSwaggerGen(options =>
 
 var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
                      ?? Array.Empty<string>();
+if (allowedOrigins.Length == 0 && !builder.Environment.IsDevelopment())
+    throw new InvalidOperationException("Cors:AllowedOrigins must list the web portal origin(s) outside Development.");
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
@@ -74,6 +77,16 @@ var permitsPerMinute = builder.Configuration.GetValue("RateLimiting:PermitsPerMi
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // Sign-in attempts: tight per-IP limit against password guessing.
+    options.AddPolicy("auth", http => RateLimitPartition.GetFixedWindowLimiter(
+        http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = builder.Configuration.GetValue("RateLimiting:LoginPerMinute", 10),
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
     options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(http =>
         RateLimitPartition.GetFixedWindowLimiter(
             http.Connection.RemoteIpAddress?.ToString() ?? "unknown",
@@ -100,6 +113,20 @@ forwarded.KnownNetworks.Clear();
 forwarded.KnownProxies.Clear();
 app.UseForwardedHeaders(forwarded);
 
+// Baseline security headers on every API response.
+app.Use(async (context, next) =>
+{
+    var headers = context.Response.Headers;
+    headers["X-Content-Type-Options"] = "nosniff";
+    headers["X-Frame-Options"] = "DENY";
+    headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
+    if (!app.Environment.IsDevelopment())
+        headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
+    if (context.Request.Path.StartsWithSegments("/api"))
+        headers["Cache-Control"] = "no-store";
+    await next();
+});
+
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 if (app.Environment.IsDevelopment() || builder.Configuration.GetValue("Swagger:Enabled", false))
 {
@@ -125,6 +152,21 @@ app.UseStaticFiles(new StaticFileOptions
 {
     FileProvider = new PhysicalFileProvider(uploadsPath),
     RequestPath = "/files"
+});
+
+app.MapGet("/files/db/{name}", async (string name, AppDbContext db, HttpContext http, CancellationToken ct) =>
+{
+    if (!SchoolErp.Infrastructure.Services.DatabaseFileStorage.TryParseId(name, out var id)) return Results.NotFound();
+    var blob = await db.StoredBlobs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == id, ct);
+    if (blob is null) return Results.NotFound();
+
+    // Ids are unguessable; content never changes for a given id, so it can be cached.
+    http.Response.Headers.CacheControl = "private, max-age=86400";
+    var inline = blob.ContentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+                 blob.ContentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase);
+    return inline
+        ? Results.File(blob.Content, blob.ContentType)
+        : Results.File(blob.Content, blob.ContentType, blob.FileName);
 });
 
 app.MapGet("/health", () => Results.Ok(new
@@ -172,6 +214,17 @@ else if (!app.Environment.IsDevelopment())
             ALTER TABLE "School" ADD COLUMN IF NOT EXISTS "PlatformFeeAmount" numeric(18,2) NOT NULL DEFAULT 0;
             ALTER TABLE "School" ADD COLUMN IF NOT EXISTS "PlatformFeeNotes" varchar(256) NULL;
             ALTER TABLE "StudentFeeAssignment" ADD COLUMN IF NOT EXISTS "PlatformFeeAmount" numeric(18,2) NOT NULL DEFAULT 0;
+            ALTER TABLE "Payment" ADD COLUMN IF NOT EXISTS "PenaltyPortion" numeric(18,2) NOT NULL DEFAULT 0;
+            CREATE TABLE IF NOT EXISTS "StoredBlob" (
+                "Id" uuid NOT NULL PRIMARY KEY,
+                "SchoolId" integer NULL,
+                "FileName" varchar(256) NOT NULL,
+                "ContentType" varchar(512) NOT NULL,
+                "Content" bytea NOT NULL,
+                "SizeBytes" bigint NOT NULL,
+                "CreatedAtUtc" timestamp without time zone NOT NULL);
+            CREATE UNIQUE INDEX IF NOT EXISTS "IX_Payment_GatewayPaymentId_Unique"
+                ON "Payment" ("GatewayPaymentId") WHERE "GatewayPaymentId" IS NOT NULL;
             """);
     }
     var cfg = builder.Configuration;

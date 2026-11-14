@@ -157,6 +157,7 @@ public sealed class FeeServiceTests
     private sealed class FakeGateway : IPaymentGateway
     {
         public string Name => "Fake";
+        public bool IsEnabled => true;
 
         public Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference,
             CancellationToken ct = default) =>

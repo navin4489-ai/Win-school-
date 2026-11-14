@@ -204,6 +204,10 @@ public sealed class AdmissionService
             if (admission.ClassId is not null && admission.ClassId != section.ClassId)
                 throw DomainException.Validation("The selected section does not belong to the applied class.");
 
+            // One enrolment at a time per school, so admission and receipt numbers never collide.
+            await _uow.LockAsync($"enrol-{SchoolId}", token);
+            await _uow.LockAsync($"receipt-no-{SchoolId}", token);
+
             var admissionNo = string.IsNullOrWhiteSpace(request.AdmissionNo)
                 ? await NextAdmissionNoAsync(token)
                 : request.AdmissionNo.Trim();

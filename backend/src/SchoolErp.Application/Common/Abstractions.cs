@@ -81,6 +81,12 @@ public interface IUnitOfWork
 {
     Task<int> SaveChangesAsync(CancellationToken ct = default);
     Task<T> ExecuteInTransactionAsync<T>(Func<CancellationToken, Task<T>> action, CancellationToken ct = default);
+
+    /// <summary>
+    /// Holds an exclusive lock on <paramref name="key"/> until the current transaction ends.
+    /// Used so two requests never issue the same receipt or admission number.
+    /// </summary>
+    Task LockAsync(string key, CancellationToken ct = default);
 }
 
 public interface ICurrentUser
@@ -170,6 +176,8 @@ public sealed record GatewayOrder(
 public interface IPaymentGateway
 {
     string Name { get; }
+    /// <summary>False when no real gateway is configured; online payments are then refused.</summary>
+    bool IsEnabled { get; }
     Task<GatewayOrder> CreateOrderAsync(decimal amount, string reference, CancellationToken ct = default);
     Task<GatewayVerification> VerifyAsync(string orderId, string paymentId, decimal amount, CancellationToken ct = default);
     Task<GatewayVerification> RefundAsync(string paymentId, decimal amount, CancellationToken ct = default);

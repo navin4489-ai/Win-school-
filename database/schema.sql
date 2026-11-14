@@ -746,7 +746,8 @@ BEGIN
     [IdempotencyKey] NVARCHAR(64) NULL,
     [CollectedBy] INT NULL,
     [Remarks] NVARCHAR(2000) NULL,
-    [RefundedAmount] DECIMAL(18,2) NOT NULL
+    [RefundedAmount] DECIMAL(18,2) NOT NULL,
+    [PenaltyPortion] DECIMAL(18,2) NOT NULL DEFAULT 0
   );
 END;
 GO
