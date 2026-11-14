@@ -32,7 +32,7 @@ import { ClassAttendance, ClassRoom, Section } from '../../core/models';
 
       <section class="card">
         <div class="card-body">
-          <div class="filters" style="grid-template-columns:1fr 1fr 1fr auto">
+          <div class="filters filters-auto">
             <label class="field">
               <span>Class</span>
               <select [ngModel]="classId()" (ngModelChange)="setClass($event)">

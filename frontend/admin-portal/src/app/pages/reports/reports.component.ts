@@ -25,7 +25,7 @@ import { ClassRoom, ReportType } from '../../core/models';
       <section class="card">
         <div class="card-header"><h3>Export a report</h3></div>
         <div class="card-body">
-          <form [formGroup]="form" class="filters" style="grid-template-columns:1fr 1fr 1fr 1fr auto" (ngSubmit)="export()">
+          <form [formGroup]="form" class="filters filters-auto" (ngSubmit)="export()">
             <label class="field">
               <span>Report type</span>
               <select formControlName="type">

@@ -90,7 +90,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
               </select>
             </label>
           </div>
-          <table style="margin-top:10px">
+          <table class="stack-sm" style="margin-top:10px">
             <thead><tr><th>Fee head</th><th>Type</th><th>Amount (₹)</th><th>Per year</th><th></th></tr></thead>
             <tbody>
               @for (line of planLines; track $index) {
@@ -188,7 +188,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
           </div>
 
           @if (installments.length) {
-            <table style="margin-top:10px">
+            <table class="stack-sm" style="margin-top:10px">
               <thead><tr><th>Installment</th><th>Due date</th><th>Amount (₹)</th></tr></thead>
               <tbody>
                 @for (i of installments; track $index) {

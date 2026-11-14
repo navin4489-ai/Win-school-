@@ -53,7 +53,7 @@ interface NavSection { label: string; items: NavItem[]; }
             <strong>{{ auth.user()?.fullName }}</strong>
             <span>{{ auth.user()?.email }}</span>
           </div>
-          <button class="logout" title="Sign out" (click)="auth.logout()">⎋</button>
+          <button class="logout" title="Sign out" aria-label="Sign out" (click)="auth.logout()">⎋</button>
         </div>
       </aside>
 
@@ -64,7 +64,7 @@ interface NavSection { label: string; items: NavItem[]; }
       <div class="main">
         <header class="topbar">
           <button class="menu-btn" aria-label="Open menu" (click)="menuOpen.set(true)">☰</button>
-          <div class="topbar-title">School Management System</div>
+          <div class="topbar-title" [title]="auth.user()?.schoolName || 'Wintech School ERP'">{{ auth.user()?.schoolName || 'Wintech School ERP' }}</div>
           <div class="spacer"></div>
 
           <button
@@ -80,14 +80,14 @@ interface NavSection { label: string; items: NavItem[]; }
           </button>
 
           <button
-            class="icon-btn"
+            class="icon-btn sound-btn"
             [title]="notifications.soundEnabled() ? 'Mute notification sound' : 'Enable notification sound'"
             [attr.aria-label]="notifications.soundEnabled() ? 'Mute notification sound' : 'Enable notification sound'"
             (click)="notifications.toggleSound()">
             {{ notifications.soundEnabled() ? '🔊' : '🔇' }}
           </button>
 
-          <button class="btn btn-ghost btn-sm" (click)="auth.logout()">Sign out</button>
+          <button class="btn btn-ghost btn-sm signout-btn" (click)="auth.logout()">Sign out</button>
         </header>
 
         @if (bellOpen()) {
@@ -154,7 +154,7 @@ interface NavSection { label: string; items: NavItem[]; }
     .nav-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; color: #7f9ab1; margin: 14px 8px 5px; font-weight: 700; }
     .nav-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; color: #cfe0ee; border-radius: 8px; font-size: 13px; font-weight: 550; text-decoration: none; }
     .nav-item:hover { background: rgba(255,255,255,0.07); color: #fff; text-decoration: none; }
-    .nav-item.active { background: rgba(244,180,26,0.16); color: #ffd775; }
+    .nav-item.active { background: rgba(244,180,26,0.16); color: #ffd775; box-shadow: inset 3px 0 0 #f4b41a; }
     .nav-icon { width: 20px; text-align: center; opacity: 0.9; }
     .sidebar-footer { margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08); padding: 13px 14px; display: flex; align-items: center; gap: 9px; }
     .who { display: grid; min-width: 0; flex: 1; }
@@ -163,11 +163,11 @@ interface NavSection { label: string; items: NavItem[]; }
     .logout { border: 0; background: transparent; color: #cfe0ee; font-size: 18px; padding: 4px; border-radius: 6px; }
     .logout:hover { background: rgba(255,255,255,0.08); }
     .main { min-width: 0; display: flex; flex-direction: column; }
-    .topbar { height: 62px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: rgba(255,255,255,0.88); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
-    .topbar-title { font-weight: 650; color: var(--navy-800); font-size: 14px; }
+    .topbar { height: 60px; display: flex; align-items: center; gap: 12px; padding: 0 24px; background: rgba(255,255,255,0.88); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 20; }
+    .topbar-title { font-weight: 650; color: var(--navy-800); font-size: 14.5px; min-width: 0; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .session { font-size: 11px; color: var(--ink-500); background: #eef4f9; padding: 4px 9px; border-radius: 999px; }
     .menu-btn { display: none; border: 1px solid var(--line); background: #fff; border-radius: 8px; width: 36px; height: 36px; font-size: 17px; }
-    .icon-btn { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: #fff; text-decoration: none; }
+    .icon-btn { position: relative; flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 9px; border: 1px solid var(--line); background: #fff; text-decoration: none; }
     .icon-btn.active { background: var(--teal-100); border-color: var(--teal-500); }
     .badge-count { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--red-500); color: #fff; font-size: 10px; font-weight: 700; display: grid; place-items: center; }
     .bell-panel { position: absolute; top: 68px; right: 24px; width: min(380px, calc(100vw - 28px)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); z-index: 40; overflow: hidden; }
@@ -198,7 +198,12 @@ interface NavSection { label: string; items: NavItem[]; }
       .content { padding: 18px 14px; }
       .topbar { padding: 0 14px; }
       .session { display: none; }
-      .bell-panel { right: 14px; }
+      .bell-panel { right: 14px; position: fixed; top: 64px; }
+    }
+    @media (max-width: 600px) {
+      .sound-btn, .signout-btn { display: none; }
+      .topbar { gap: 10px; }
+      .content { padding: 16px 12px 28px; }
     }
   `]
 })

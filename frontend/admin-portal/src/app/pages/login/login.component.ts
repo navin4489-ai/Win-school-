@@ -118,7 +118,7 @@ import { AuthService } from '../../core/auth.service';
     .orb-1 { width: 380px; height: 380px; right: -120px; top: -120px; background: radial-gradient(circle, #0f8a86, transparent 70%); }
     .orb-2 { width: 300px; height: 300px; left: -100px; bottom: -120px; background: radial-gradient(circle, #f3b33d, transparent 70%); }
 
-    .panel { display: grid; place-items: center; padding: 32px 24px; }
+    .panel { display: grid; place-items: center; padding: 32px 24px; min-width: 0; }
     .card-login { width: 100%; max-width: 420px; background: #fff; border-radius: 20px; padding: 36px 32px;
       box-shadow: 0 20px 50px rgba(15, 42, 74, .10); border: 1px solid #e6edf4; }
     .mobile-brand { display: none; }
@@ -158,7 +158,7 @@ import { AuthService } from '../../core/auth.service';
     .secure { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid #edf1f5; font-size: 11.5px; color: #8a9aab; text-align: center; }
 
     @media (max-width: 900px) {
-      .login { grid-template-columns: 1fr; }
+      .login { grid-template-columns: minmax(0, 1fr); }
       .hero { display: none; }
       .panel { min-height: 100vh; background: linear-gradient(180deg, #0b1f3a 0, #12345c 220px, #f4f7fb 220px); }
       .mobile-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; color: #0b1f3a; }
