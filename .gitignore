@@ -20,6 +20,7 @@ yarn-error.log
 *.tsbuildinfo
 .env
 .env.*
+!.env.example
 
 # Flutter
 .dart_tool/
@@ -43,3 +44,8 @@ Thumbs.db
 uploads/
 logs/
 *.log
+
+# Signing keys (never commit)
+*.jks
+*.keystore
+key.properties

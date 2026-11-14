@@ -9,9 +9,9 @@ Built for **Wintech Innovations** from the *School Management System BRD v1.0*.
 | --- | --- |
 | Admin / Parent / Teacher web | Angular 18 (standalone, signals) |
 | API | ASP.NET Core 8 Web API, C# 12 |
-| Data | SQL Server + EF Core 8 |
+| Data | PostgreSQL in production (SQL Server supported for local dev) + EF Core 8 |
 | Mobile | Flutter 3 (Android + iOS) |
-| Cloud | Azure App Service / Container Apps, Blob Storage, Redis, Azure Monitor |
+| Hosting | Render (API Docker service, static web portal, PostgreSQL), Cloudflare DNS |
 | Auth | JWT access + rotating refresh tokens, permission policies |
 
 ## Repository layout
@@ -97,7 +97,7 @@ sqlcmd -S localhost -U sa -P 'Your_password123' -i database/schema.sql
 sqlcmd -S localhost -U sa -P 'Your_password123' -d SchoolErp -i database/seed.sql
 ```
 
-Local development can instead let EF Core create the schema on first run (`Database:AutoCreate=true`,
+Local development can instead let EF Core create the schema on first run (`Seed:Enabled=true` in Development,
 the default in Development). Add migrations once the model is final:
 
 ```bash
@@ -187,42 +187,42 @@ One portal and one app serve many schools. Every record belongs to one school, a
 
 - **Schools** (super admin only): create a school with its code, logo, address and admin account. Choose which modules it uses, and suspend or reactivate it. A new school gets a main campus, the current April–March session and the 13 standard roles.
 - **Users & roles** (`users.manage`): create users, change their role, disable them and reset passwords. A school admin manages only their own school. The super admin can pick any school.
-- **Sign-in**: users enter their school code. If the same email exists in two schools, sign-in asks for the code instead of guessing.
+- **Sign-in**: no school code needed. Staff sign in with their email; parents and students sign in with the child's **admission number**. The school is found from the account whose password matches; an optional school code can still be sent by API clients.
+- **Platform payment** (super admin): each school is registered with a platform payment type — *Monthly per candidate* (added to every student's fee and shown as "Platform fee", once per student per session), *Monthly school* or *One time* (agreed amount, recorded only).
 - **Isolation**: a request without a school sees nothing. Another school's records return 404. Only the super admin, through the platform endpoints, can change another school's rows.
 - **Modules**: switched-off modules disappear from menus and their endpoints return 403. The change applies at the user's next sign-in.
 - API: `api/platform/modules`, `api/platform/schools[/{id}[/active]]`, `api/users[/{id}[/reset-password]]`, `api/users/roles`.
 
 ## Security highlights
 
-- JWT access tokens (30 min) + hashed, rotating refresh tokens (7 days) with reuse detection.
-- Permission policies at module *and* action level (`students.read`, `fees.collect`, …).
-- School/branch isolation through EF Core global query filters plus write-time tenant guards.
+- JWT access tokens (30 min) + hashed, rotating refresh tokens (7 days) with reuse detection; tokens are rejected immediately after a password reset, deactivation or role change.
+- Permission policies at module *and* action level (`students.read`, `fees.collect`, …); users can't manage accounts ranked at or above their own.
+- School/branch isolation through EF Core global query filters plus write-time tenant guards; cross-school references are rejected.
 - Teacher scope limited to assigned class/section/subject; parents limited to linked children.
 - Parents can only raise and complete payments for their own children, never for anyone else's.
-- Account lockout, rate limiting, soft delete, optimistic concurrency, before/after audit trail.
-- Upload allow-list, size limits and a malware-scanning abstraction; sensitive fields masked in logs.
-- OWASP-aligned validation, parameterised queries, CORS allow-list and TLS-only transport.
+- Online payment is **off** unless a real gateway is configured (`Payments:Provider`); the test gateway is refused in Production, and a gateway payment id can be credited only once.
+- Account lockout (counted across every account an identifier can match), login rate limit (10/min/IP), soft delete, optimistic concurrency, before/after audit trail.
+- Upload allow-list and size limits; uploads stored in the database so they survive redeploys.
+- Security headers (HSTS, CSP, nosniff, frame-deny), CORS allow-list required in Production, CSV export formula-injection guard.
 
 Full control mapping: [`docs/security.md`](docs/security.md).
 
-## Push to GitHub
+## Production (live)
 
-This repository is committed locally on `main`. GitHub access is blocked from the build sandbox,
-so create the remote and push from a machine with your credentials:
+| | |
+|---|---|
+| Web portal | <https://school.wintechinov.com> (Render static site, Cloudflare DNS) |
+| API | Render web service (Docker, `infra/api.Dockerfile`), reached through `/api` on the portal domain |
+| Database | Render PostgreSQL (`Database__Provider=Postgres`) |
+| Config | Environment variables listed in [`.env.example`](.env.example); `render.yaml` is the Blueprint |
+| Deploys | Every push to `main` auto-deploys the API and portal |
+| Android app | `flutter build apk --release --dart-define=API_BASE_URL=https://school.wintechinov.com/api`; release builds are signed with the key referenced by `android/key.properties` (kept outside the repo) |
 
-```bash
-gh auth login
-gh repo create <your-github-username>/school-erp --private --source=. --remote=origin --push
-```
+New columns/tables for an existing Postgres database are applied at API start-up (idempotent `ALTER … IF NOT EXISTS` in `Program.cs`). Back up the database before major releases.
 
-Without the GitHub CLI:
+## Source control
 
-```bash
-git remote add origin https://github.com/<owner>/<repo>.git
-git push -u origin main
-```
-
-GitHub Actions (`.github/workflows/ci.yml`) builds and tests the API, web portal and mobile app on every push. `infra/azure-pipelines.yml` is the Azure DevOps equivalent and also publishes container images. See [`docs/deployment.md`](docs/deployment.md) for Azure provisioning.
+GitHub Actions (`.github/workflows/ci.yml`) builds and tests the API, web portal and mobile app on every push.
 
 ## Documentation
 
