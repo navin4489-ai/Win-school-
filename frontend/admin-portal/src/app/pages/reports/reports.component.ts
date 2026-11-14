@@ -1,3 +1,4 @@
+import { localDate } from '../../core/dates';
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
@@ -98,7 +99,7 @@ export class ReportsComponent implements OnInit {
     });
     this.api.get<ClassRoom[]>('admin/classes').subscribe({
       next: classes => this.classes.set(classes),
-      error: () => undefined
+      error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.')
     });
   }
 
@@ -135,7 +136,7 @@ export class ReportsComponent implements OnInit {
 }
 
 function iso(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return localDate(date);
 }
 
 function firstOfMonth(): string {

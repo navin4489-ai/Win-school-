@@ -285,11 +285,11 @@ export class AdmissionsComponent implements OnInit {
   loadLookups(): void {
     this.api.get<ClassRoom[]>('admin/classes').subscribe({
       next: classes => this.classes.set(classes),
-      error: () => undefined
+      error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.')
     });
     this.api.get<AcademicSession[]>('admin/sessions').subscribe({
       next: sessions => this.sessions.set(sessions),
-      error: () => undefined
+      error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.')
     });
   }
 

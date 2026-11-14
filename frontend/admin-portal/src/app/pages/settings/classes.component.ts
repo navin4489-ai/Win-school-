@@ -1,3 +1,4 @@
+import { finalize } from 'rxjs';
 import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
@@ -35,7 +36,7 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
               <label class="field"><span>Stream</span><input formControlName="stream" placeholder="Science (optional)" /></label>
               <label class="field"><span>Display order</span><input formControlName="displayOrder" type="number" /></label>
               <div class="full row">
-                <button class="btn btn-primary" type="submit" [disabled]="classForm.invalid">{{ editingClass() ? 'Update' : 'Add class' }}</button>
+                <button class="btn btn-primary" type="submit" [disabled]="classForm.invalid || busy()">{{ editingClass() ? 'Update' : 'Add class' }}</button>
                 @if (editingClass()) { <button class="btn btn-ghost" type="button" (click)="resetClass()">Cancel</button> }
               </div>
             </form>
@@ -57,7 +58,7 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
                 </label>
                 <label class="field"><span>Section name *</span><input formControlName="name" placeholder="A" /></label>
                 <label class="field"><span>Capacity</span><input formControlName="capacity" type="number" /></label>
-                <div class="full"><button class="btn btn-primary" type="submit" [disabled]="sectionForm.invalid">Add section</button></div>
+                <div class="full"><button class="btn btn-primary" type="submit" [disabled]="sectionForm.invalid || busy()">Add section</button></div>
               </form>
             }
           </div>
@@ -70,7 +71,7 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
               <label class="field"><span>Name *</span><input formControlName="name" placeholder="Mathematics" /></label>
               <label class="field"><span>Code *</span><input formControlName="code" placeholder="MATH" /></label>
               <label class="row" style="gap:8px"><input type="checkbox" formControlName="isElective" /><span>Elective</span></label>
-              <div class="full"><button class="btn btn-primary" type="submit" [disabled]="subjectForm.invalid">Add subject</button></div>
+              <div class="full"><button class="btn btn-primary" type="submit" [disabled]="subjectForm.invalid || busy()">Add subject</button></div>
             </form>
             <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:12px">
               @for (s of subjects(); track s.id) { <span class="badge">{{ s.name }} ({{ s.code }})</span> }
@@ -100,7 +101,7 @@ interface Subject { id: number; name: string; code: string; isElective: boolean;
                         }
                         <input #sec placeholder="New section e.g. A" style="width:130px" />
                         <input #cap type="number" value="40" title="Capacity" style="width:70px" />
-                        <button class="btn btn-ghost btn-sm" (click)="addSection(c, sec.value, +cap.value); sec.value=''">Add</button>
+                        <button class="btn btn-ghost btn-sm" [disabled]="busy()" (click)="addSection(c, sec.value, +cap.value); sec.value=''">Add</button>
                       </div>
                     </td>
                     <td><button class="btn btn-ghost btn-sm" (click)="editClass(c)">Edit</button></td>
@@ -124,6 +125,7 @@ export class ClassesComponent implements OnInit {
   readonly editingClass = signal<number | null>(null);
   readonly error = signal<string | null>(null);
   readonly message = signal<string | null>(null);
+  readonly busy = signal(false);
 
   readonly classForm = this.fb.nonNullable.group({
     name: ['', Validators.required], code: ['', Validators.required], stream: [''], displayOrder: [0]
@@ -157,14 +159,17 @@ export class ClassesComponent implements OnInit {
   }
 
   loadSubjects(): void {
-    this.api.get<Subject[]>('admin/subjects').subscribe({ next: s => this.subjects.set(s) });
+    this.api.get<Subject[]>('admin/subjects').subscribe({ next: s => this.subjects.set(s), error: (r: unknown) => this.error.set(readError(r)) });
   }
 
   saveClass(): void {
     const raw = this.classForm.getRawValue();
     const body = { ...raw, stream: raw.stream || null, displayOrder: Number(raw.displayOrder) || 0 };
     const id = this.editingClass();
-    (id ? this.api.put(`admin/classes/${id}`, body) : this.api.post('admin/classes', body)).subscribe({
+    if (this.busy()) return;
+    this.busy.set(true);
+    (id ? this.api.put(`admin/classes/${id}`, body) : this.api.post('admin/classes', body))
+      .pipe(finalize(() => this.busy.set(false))).subscribe({
       next: () => { this.ok(id ? 'Class updated.' : `${raw.name} added. Now add its sections.`); this.resetClass(); this.load(); },
       error: r => this.fail(r)
     });
@@ -182,8 +187,9 @@ export class ClassesComponent implements OnInit {
   }
 
   addSection(c: ClassRoom, name: string, capacity: number, after?: () => void): void {
-    if (!name.trim()) return;
-    this.api.post(`admin/classes/${c.id}/sections`, { name: name.trim(), capacity: capacity || 40 }).subscribe({
+    if (!name.trim() || this.busy()) return;
+    this.busy.set(true);
+    this.api.post(`admin/classes/${c.id}/sections`, { name: name.trim(), capacity: capacity || 40 }).pipe(finalize(() => this.busy.set(false))).subscribe({
       next: () => { this.ok(`Section ${name.trim()} added to ${c.name}.`); this.loadSections(c.id); after?.(); },
       error: r => this.fail(r)
     });
@@ -198,7 +204,9 @@ export class ClassesComponent implements OnInit {
   }
 
   saveSubject(): void {
-    this.api.post('admin/subjects', this.subjectForm.getRawValue()).subscribe({
+    if (this.busy()) return;
+    this.busy.set(true);
+    this.api.post('admin/subjects', this.subjectForm.getRawValue()).pipe(finalize(() => this.busy.set(false))).subscribe({
       next: () => { this.ok('Subject added.'); this.subjectForm.reset({ name: '', code: '', isElective: false }); this.loadSubjects(); },
       error: r => this.fail(r)
     });

@@ -1,3 +1,4 @@
+import { localDate } from '../../core/dates';
 import { DatePipe } from '@angular/common';
 import { Component, ElementRef, OnDestroy, OnInit, ViewChild, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -485,10 +486,10 @@ export class MyAttendanceComponent implements OnInit, OnDestroy {
   }
 
   private daysAgo(days: number): string {
-    return new Date(Date.now() - days * DAY_MS).toISOString().slice(0, 10);
+    return localDate(new Date(Date.now() - days * DAY_MS));
   }
 
   private isoToday(): string {
-    return new Date().toISOString().slice(0, 10);
+    return localDate();
   }
 }

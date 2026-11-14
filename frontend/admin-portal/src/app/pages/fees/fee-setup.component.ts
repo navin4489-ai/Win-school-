@@ -1,3 +1,4 @@
+import { localDate } from '../../core/dates';
 import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CurrencyPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -47,10 +48,10 @@ interface Installment { name: string; dueDate: string; amount: number; }
             } @empty { <span class="small muted">No fee heads yet. Add e.g. Tuition fee, Annual fee, Admission fee.</span> }
           </div>
           <div class="row" style="gap:8px;flex-wrap:wrap">
-            <input [(ngModel)]="catName" placeholder="Name, e.g. Annual fee" style="width:200px" />
-            <input [(ngModel)]="catCode" placeholder="Code, e.g. ANNUAL" style="width:140px" />
+            <input [(ngModel)]="catName" aria-label="Fee head name" placeholder="Name, e.g. Annual fee" style="width:100%;max-width:200px" />
+            <input [(ngModel)]="catCode" aria-label="Fee head code" placeholder="Code, e.g. ANNUAL" style="width:100%;max-width:140px" />
             <label class="row" style="gap:6px"><input type="checkbox" [(ngModel)]="catRecurring" /> Recurring (every term/month)</label>
-            <button class="btn btn-primary btn-sm" (click)="addCategory()" [disabled]="!catName.trim() || !catCode.trim()">Add fee head</button>
+            <button class="btn btn-primary btn-sm" (click)="addCategory()" [disabled]="!catName.trim() || !catCode.trim() || saving()">Add fee head</button>
           </div>
         </div>
       </section>
@@ -94,7 +95,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
                     </select>
                   </td>
                   <td>
-                    <input type="number" min="0" [(ngModel)]="line.amount" style="width:120px" />
+                    <input type="number" min="0" aria-label="Amount" [(ngModel)]="line.amount" style="width:100%;max-width:120px" />
                     <span class="small muted"> {{ perLabel(line.frequency) }}</span>
                   </td>
                   <td>{{ yearly(line) | currency:'INR':'symbol':'1.0-0' }}</td>
@@ -106,7 +107,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
           <div class="row" style="gap:10px;margin-top:10px">
             <button class="btn btn-ghost btn-sm" (click)="planLines.push(newLine())">+ Add fee head line</button>
             <strong>Total for the year: {{ planTotal() | currency:'INR':'symbol':'1.0-0' }}</strong>
-            <button class="btn btn-primary btn-sm" (click)="savePlan()" [disabled]="!canSavePlan()">Save fee plan</button>
+            <button class="btn btn-primary btn-sm" (click)="savePlan()" [disabled]="!canSavePlan() || saving()">Save fee plan</button>
           </div>
 
           <div class="table-wrap" style="margin-top:16px">
@@ -162,9 +163,9 @@ interface Installment { name: string; dueDate: string; amount: number; }
               <tbody>
                 @for (i of installments; track $index) {
                   <tr>
-                    <td><input [(ngModel)]="i.name" style="width:160px" /></td>
-                    <td><input type="date" [(ngModel)]="i.dueDate" /></td>
-                    <td><input type="number" [(ngModel)]="i.amount" style="width:120px" /></td>
+                    <td><input [(ngModel)]="i.name" aria-label="Installment name" style="width:100%;max-width:160px" /></td>
+                    <td><input type="date" aria-label="Due date" [(ngModel)]="i.dueDate" /></td>
+                    <td><input type="number" min="0" aria-label="Installment amount" [(ngModel)]="i.amount" style="width:100%;max-width:120px" /></td>
                   </tr>
                 }
               </tbody>
@@ -184,7 +185,7 @@ interface Installment { name: string; dueDate: string; amount: number; }
 
             <div class="row" style="gap:8px;flex-wrap:wrap;margin-top:10px">
               <strong>One student:</strong>
-              <input [(ngModel)]="search" placeholder="Admission no. or name" style="width:220px" (keyup.enter)="findStudents()" />
+              <input [(ngModel)]="search" aria-label="Search student" placeholder="Admission no. or name" style="width:100%;max-width:220px" (keyup.enter)="findStudents()" />
               <button class="btn btn-ghost btn-sm" (click)="findStudents()">Search</button>
             </div>
             @if (students().length) {
@@ -236,7 +237,7 @@ export class FeeSetupComponent implements OnInit {
   ngOnInit(): void {
     this.loadCategories();
     this.loadPlans();
-    this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: c => this.classes.set(c) });
+    this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: c => this.classes.set(c), error: (r: unknown) => this.error.set(readError(r)) });
     this.api.get<Session[]>('admin/sessions').subscribe({
       next: s => {
         this.sessions.set(s);
@@ -257,25 +258,29 @@ export class FeeSetupComponent implements OnInit {
       this.planLines.every(l => l.feeCategoryId > 0 && Number(l.amount) > 0);
   }
 
-  loadCategories(): void { this.api.get<Category[]>('fees/categories').subscribe({ next: c => this.categories.set(c) }); }
+  loadCategories(): void { this.api.get<Category[]>('fees/categories').subscribe({ next: c => this.categories.set(c), error: (r: unknown) => this.error.set(readError(r)) }); }
   loadPlans(): void { this.api.get<Plan[]>('fees/structures').subscribe({ next: p => this.plans.set(p), error: r => this.fail(r) }); }
 
   addCategory(): void {
+    if (this.saving()) return;
+    this.saving.set(true);
     this.api.post('fees/categories', { name: this.catName.trim(), code: this.catCode.trim().toUpperCase(), isRecurring: this.catRecurring })
       .subscribe({
-        next: () => { this.ok(`Fee head "${this.catName.trim()}" added.`); this.catName = ''; this.catCode = ''; this.catRecurring = false; this.loadCategories(); },
-        error: r => this.fail(r)
+        next: () => { this.saving.set(false); this.ok(`Fee head "${this.catName.trim()}" added.`); this.catName = ''; this.catCode = ''; this.catRecurring = false; this.loadCategories(); },
+        error: r => { this.saving.set(false); this.fail(r); }
       });
   }
 
   savePlan(): void {
+    if (this.saving()) return;
     const body = {
       name: this.planName.trim(), classId: this.planClassId, academicSessionId: this.planSessionId,
       items: this.planLines.map(l => ({ feeCategoryId: l.feeCategoryId, amount: this.yearly(l), frequency: l.frequency, dueDay: 10 }))
     };
+    this.saving.set(true);
     this.api.post('fees/structures', body).subscribe({
-      next: () => { this.ok(`Fee plan "${body.name}" saved.`); this.planName = ''; this.planLines = [this.newLine()]; this.loadPlans(); },
-      error: r => this.fail(r)
+      next: () => { this.saving.set(false); this.ok(`Fee plan "${body.name}" saved.`); this.planName = ''; this.planLines = [this.newLine()]; this.loadPlans(); },
+      error: r => { this.saving.set(false); this.fail(r); }
     });
   }
 
@@ -357,7 +362,7 @@ export class FeeSetupComponent implements OnInit {
   private fail(r: unknown, text?: string): void { this.message.set(null); this.error.set(text ?? readError(r)); }
 }
 
-function today(): string { return new Date().toISOString().slice(0, 10); }
+function today(): string { return localDate(); }
 function round(n: number): number { return Math.round(n * 100) / 100; }
 function addMonths(iso: string, months: number): string {
   const d = new Date(iso + 'T00:00:00');

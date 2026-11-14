@@ -246,7 +246,7 @@ export class ExamsComponent implements OnInit {
   });
 
   ngOnInit(): void {
-    this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: rows => this.classes.set(rows), error: () => undefined });
+    this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: rows => this.classes.set(rows), error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.') });
     this.api.get<AcademicSession[]>('admin/sessions').subscribe({
       next: rows => {
         this.sessions.set(rows);

@@ -227,7 +227,7 @@ export class SchoolsComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.api.get<Module[]>('platform/modules').subscribe({ next: m => this.modules.set(m) });
+    this.api.get<Module[]>('platform/modules').subscribe({ next: m => this.modules.set(m), error: (r: unknown) => this.error.set(readError(r)) });
     this.load();
   }
 

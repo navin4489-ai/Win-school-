@@ -1,3 +1,4 @@
+import { localDate } from '../../core/dates';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -238,7 +239,7 @@ export class StudentDetailComponent implements OnInit {
 
     this.api.get<Ledger>(`fees/students/${id}/ledger`).subscribe({
       next: ledger => this.ledger.set(ledger),
-      error: () => undefined
+      error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.')
     });
 
     const to = new Date();
@@ -246,7 +247,7 @@ export class StudentDetailComponent implements OnInit {
     from.setDate(from.getDate() - 30);
     this.api
       .get<AttendanceSummary>(`attendance/students/${id}`, { from: iso(from), to: iso(to) })
-      .subscribe({ next: summary => this.attendance.set(summary), error: () => undefined });
+      .subscribe({ next: summary => this.attendance.set(summary), error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.') });
   }
 
   upload(event: Event): void {
@@ -288,5 +289,5 @@ export class StudentDetailComponent implements OnInit {
 }
 
 function iso(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return localDate(date);
 }

@@ -1,3 +1,4 @@
+import { localDate } from '../../core/dates';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
@@ -131,9 +132,9 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
                         <div style="text-align:right">
                           <div>{{ installment.balance | currency:'INR':'symbol':'1.0-0' }}</div>
                           @if (installment.balance > 0) {
-                            <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">
+                            @if (onlineEnabled()) { <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">
                               Pay online
-                            </button>
+                            </button> } @else { <div class="small muted">Pay at the school office</div> }
                           }
                         </div>
                       </div>
@@ -288,7 +289,7 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
                         @if (installment.balance > 0) {
                           <div class="row" style="gap:6px;justify-content:flex-end;margin-top:4px">
                             <button class="btn btn-ghost btn-sm" type="button" (click)="payInstallment(installment.id, installment.balance)">Pay</button>
-                            <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">Pay online</button>
+                            @if (onlineEnabled()) { <button class="btn btn-gold btn-sm" type="button" (click)="startOnlinePayment(installment.id, installment.balance)">Pay online</button> }
                           </div>
                         }
                       </div>
@@ -404,10 +405,10 @@ type Tab = 'collect' | 'outstanding' | 'payments' | 'my-fees';
               <div class="divider"></div>
               <label class="field">
                 <span>Card / UPI reference</span>
-                <input [(ngModel)]="cardReference" placeholder="4242 4242 4242 4242" />
+                <input [(ngModel)]="cardReference" placeholder="Reference shown by your bank or UPI app" />
               </label>
               <p class="small muted">
-                Test gateway — no real money moves. The amount is verified against the order the server created.
+                Paying through {{ order.gateway }}. The amount is verified against the order the server created.
               </p>
             </div>
             <div class="modal-foot">
@@ -450,7 +451,8 @@ export class FeesComponent implements OnInit {
   readonly classId = signal('');
   readonly checkout = signal<PaymentOrder | null>(null);
   readonly paying = signal(false);
-  cardReference = '4242 4242 4242 4242';
+  cardReference = '';
+  readonly onlineEnabled = signal(false);
 
   // Parents and students both get the family view: their own ledger, never school-wide figures.
   readonly isStudent = computed(() => this.auth.user()?.roleCode === 'Student');
@@ -496,6 +498,11 @@ export class FeesComponent implements OnInit {
     const now = new Date();
     const from = new Date(now.getFullYear(), now.getMonth(), 1);
 
+    this.api.get<{ onlineEnabled: boolean }>('fees/payment-config').subscribe({
+      next: c => this.onlineEnabled.set(!!c.onlineEnabled),
+      error: () => this.onlineEnabled.set(false)
+    });
+
     if (this.isParent()) {
       this.tab.set('my-fees');
       this.loadChildren();
@@ -503,10 +510,10 @@ export class FeesComponent implements OnInit {
       return;
     }
 
-    this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: rows => this.classes.set(rows), error: () => undefined });
+    this.api.get<ClassRoom[]>('admin/classes').subscribe({ next: rows => this.classes.set(rows), error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.') });
     this.api
       .get<CollectionSummary>('fees/summary', { from: iso(from), to: iso(now) })
-      .subscribe({ next: value => this.summary.set(value), error: () => undefined });
+      .subscribe({ next: value => this.summary.set(value), error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.') });
     this.loadPayments(from, now);
     this.loadOutstanding();
   }
@@ -694,7 +701,7 @@ export class FeesComponent implements OnInit {
   private loadPayments(from: Date, to: Date): void {
     this.api
       .get<PagedResult<Payment>>('fees/payments', { page: 1, pageSize: 25, from: iso(from), to: iso(to) })
-      .subscribe({ next: result => this.payments.set(result.items), error: () => undefined });
+      .subscribe({ next: result => this.payments.set(result.items), error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.') });
   }
 
   overdueTotal(): number {
@@ -703,7 +710,7 @@ export class FeesComponent implements OnInit {
 }
 
 function iso(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return localDate(date);
 }
 
 function readError(response: unknown): string | null {

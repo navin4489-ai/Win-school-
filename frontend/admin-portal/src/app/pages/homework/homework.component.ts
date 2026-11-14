@@ -126,9 +126,9 @@ interface Submission {
                           <span class="small muted">{{ asUtc(s.submittedAtUtc) | date:'dd MMM, h:mm a' }}{{ s.isLate ? ' · late' : '' }}</span>
                           @if (s.remarks) { <span class="small">{{ s.remarks }}</span> }
                           @if (s.fileUrl) { <a class="small" [href]="s.fileUrl" target="_blank" rel="noopener">File</a> }
-                          <input type="number" [(ngModel)]="s.marks" placeholder="Marks" style="width:80px" />
-                          <input [(ngModel)]="s.feedback" placeholder="Feedback" style="width:180px" />
-                          <button class="btn btn-primary btn-sm" (click)="grade(s)">Save grade</button>
+                          <input type="number" min="0" aria-label="Marks" [(ngModel)]="s.marks" placeholder="Marks" style="width:80px" />
+                          <input [(ngModel)]="s.feedback" aria-label="Feedback" placeholder="Feedback" style="width:100%;max-width:180px" />
+                          <button class="btn btn-primary btn-sm" [disabled]="saving()" (click)="grade(s)">Save grade</button>
                         </div>
                       }
                     </td></tr>
@@ -136,9 +136,9 @@ interface Submission {
                   @if (openId() === h.id && isStudent()) {
                     <tr><td colspan="7">
                       <div class="row" style="gap:8px;flex-wrap:wrap">
-                        <input [(ngModel)]="submitRemarks" placeholder="Your answer / remarks" style="flex:1;min-width:200px" />
-                        <input [(ngModel)]="submitLink" placeholder="Link to your file (optional)" style="width:220px" />
-                        <button class="btn btn-primary btn-sm" (click)="submit(h)">Submit</button>
+                        <input [(ngModel)]="submitRemarks" aria-label="Your answer" placeholder="Your answer / remarks" style="flex:1;min-width:0" />
+                        <input [(ngModel)]="submitLink" aria-label="Link to your file" placeholder="Link to your file (optional)" style="width:100%;max-width:220px" />
+                        <button class="btn btn-primary btn-sm" [disabled]="saving()" (click)="submit(h)">Submit</button>
                       </div>
                     </td></tr>
                   }
@@ -197,7 +197,7 @@ export class HomeworkComponent implements OnInit {
         }));
       }
     });
-    this.api.get<Subject[]>('admin/subjects').subscribe({ next: s => this.subjects.set(s) });
+    this.api.get<Subject[]>('admin/subjects').subscribe({ next: s => this.subjects.set(s), error: (r: unknown) => this.error.set(readError(r)) });
   }
 
   load(): void {
@@ -223,7 +223,7 @@ export class HomeworkComponent implements OnInit {
     this.form.controls.sectionId.setValue('');
     this.sections.set([]);
     if (!classId) return;
-    this.api.get<Section[]>(`admin/classes/${classId}/sections`).subscribe({ next: s => this.sections.set(s) });
+    this.api.get<Section[]>(`admin/classes/${classId}/sections`).subscribe({ next: s => this.sections.set(s), error: (r: unknown) => this.error.set(readError(r)) });
   }
 
   save(): void {
@@ -262,15 +262,24 @@ export class HomeworkComponent implements OnInit {
   }
 
   grade(s: Submission): void {
+    if (this.saving()) return;
+    this.saving.set(true);
     this.api.post(`homework/submissions/${s.id}/grade`, { marks: Number(s.marks) || 0, feedback: s.feedback || null }).subscribe({
-      next: () => { this.error.set(null); this.message.set(`Grade saved for ${s.studentName}.`); },
-      error: r => this.error.set(readError(r))
+      next: () => { this.saving.set(false); this.error.set(null); this.message.set(`Grade saved for ${s.studentName}.`); },
+      error: r => { this.saving.set(false); this.error.set(readError(r)); }
     });
   }
 
   submit(h: Homework): void {
+    if (this.saving()) return;
+    if (!this.submitRemarks.trim() && !this.submitLink.trim()) {
+      this.error.set('Write your answer or add a link to your file before submitting.');
+      return;
+    }
+    this.saving.set(true);
     this.api.post(`homework/${h.id}/submissions`, { remarks: this.submitRemarks || null, fileUrl: this.submitLink.trim() || null }).subscribe({
       next: () => {
+        this.saving.set(false);
         this.error.set(null);
         this.message.set(`Submitted "${h.title}".`);
         this.submitRemarks = '';
@@ -278,7 +287,7 @@ export class HomeworkComponent implements OnInit {
         this.openId.set(null);
         this.load();
       },
-      error: r => this.error.set(readError(r))
+      error: r => { this.saving.set(false); this.error.set(readError(r)); }
     });
   }
 }

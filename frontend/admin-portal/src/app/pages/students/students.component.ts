@@ -114,7 +114,7 @@ export class StudentsComponent implements OnInit {
   ngOnInit(): void {
     this.api.get<ClassRoom[]>('admin/classes').subscribe({
       next: classes => this.classes.set(classes),
-      error: () => undefined
+      error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.')
     });
     this.load();
   }

@@ -1,3 +1,4 @@
+import { localDate } from '../../core/dates';
 import { DatePipe } from '@angular/common';
 import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -238,5 +239,5 @@ export class AttendanceComponent implements OnInit {
 }
 
 function iso(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return localDate(date);
 }

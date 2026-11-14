@@ -191,7 +191,7 @@ export class UsersComponent implements OnInit {
     this.api.get<RoleWithPerms[]>('admin/roles').subscribe({
       next: r => this.roleMatrix.set(r.filter(x => x.code !== 'SuperAdmin'))
     });
-    this.api.get<Permission[]>('admin/permissions').subscribe({ next: p => this.permissions.set(p) });
+    this.api.get<Permission[]>('admin/permissions').subscribe({ next: p => this.permissions.set(p), error: (r: unknown) => this.error.set(readError(r)) });
   }
 
   pickRole(event: Event): void {
@@ -232,7 +232,7 @@ export class UsersComponent implements OnInit {
     const requested = Number(this.route.snapshot.queryParamMap.get('schoolId')) || null;
     this.schoolId.set(this.isPlatformAdmin ? (requested ?? this.auth.user()?.schoolId ?? null) : null);
     if (this.isPlatformAdmin) {
-      this.api.get<SchoolOption[]>('platform/schools').subscribe({ next: s => this.schools.set(s) });
+      this.api.get<SchoolOption[]>('platform/schools').subscribe({ next: s => this.schools.set(s), error: (r: unknown) => this.error.set(readError(r)) });
     }
     this.reload();
     this.loadMatrix();
