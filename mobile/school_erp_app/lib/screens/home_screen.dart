@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
 import '../core/auth_controller.dart';
+import '../core/live_notifications.dart';
 import '../core/models.dart';
 import '../core/theme.dart';
 import 'attendance_screen.dart';
@@ -32,6 +33,14 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _load();
+    // Rings the bell for new notifications while this screen is open.
+    LiveNotifications.instance.start(context.read<AuthController>());
+  }
+
+  @override
+  void dispose() {
+    LiveNotifications.instance.stop();
+    super.dispose();
   }
 
   Future<void> _load() async {
@@ -64,7 +73,12 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _open(Widget screen) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => screen))
+        .then((_) {
+      // Returning from the inbox means the count may have changed.
+      if (mounted) LiveNotifications.instance.refreshUnread();
+    });
   }
 
   /// Web portal sections without a native screen, gated exactly as on the web.
@@ -174,8 +188,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.notifications_none),
+          _BellButton(
             onPressed: () => _open(const NotificationsScreen()),
           ),
           Padding(
@@ -496,6 +509,35 @@ class _HomeScreenState extends State<HomeScreen> {
       default:
         return AppColors.teal;
     }
+  }
+}
+
+/// Bell icon with the unread count badge, live from the notification feed.
+class _BellButton extends StatelessWidget {
+  const _BellButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: LiveNotifications.instance,
+      builder: (context, _) {
+        final unread = LiveNotifications.instance.unread;
+        return IconButton(
+          onPressed: onPressed,
+          icon: Badge(
+            isLabelVisible: unread > 0,
+            backgroundColor: AppColors.red,
+            label: Text(
+              unread > 99 ? '99+' : '$unread',
+              style: const TextStyle(fontSize: 9, color: Colors.white),
+            ),
+            child: const Icon(Icons.notifications_none),
+          ),
+        );
+      },
+    );
   }
 }
 

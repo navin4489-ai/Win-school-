@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import 'core/api_client.dart';
 import 'core/auth_controller.dart';
+import 'core/background_notify.dart';
+import 'core/notify.dart';
 import 'core/permissions.dart';
 import 'core/theme.dart';
 import 'screens/home_screen.dart';
@@ -13,6 +15,11 @@ Future<void> main() async {
 
   final auth = AuthController(api: ApiClient());
   await auth.restore();
+
+  // Notification channel (sound + badge) and the background poll that rings
+  // when the app is closed.
+  await Notify.init();
+  await BackgroundNotify.register();
 
   runApp(
     ChangeNotifierProvider<AuthController>.value(
