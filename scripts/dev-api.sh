@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Restart the API locally with the in-memory demo database (data resets on every restart).
+# Restart the API locally with the in-memory local database (data resets on every restart).
 set -u
 export DOTNET_ROOT="${DOTNET_ROOT:-/root/.dotnet}"
 export PATH="$DOTNET_ROOT:$PATH" DOTNET_CLI_TELEMETRY_OPTOUT=1

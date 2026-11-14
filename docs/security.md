@@ -70,7 +70,7 @@ refund, marks approval, attendance correction and permission changes are explici
 
 ## Production checklist
 
-- [ ] Replace demo JWT key and disable seed data.
+- [x] Production refuses development JWT keys; no sample data is ever created.
 - [ ] Key Vault references for SQL, JWT, storage, SMS, WhatsApp, payment gateway.
 - [ ] Managed identities for SQL and Blob; no connection-string credentials where avoidable.
 - [ ] Azure Front Door WAF, TLS-only, HSTS, CSP, rate limits.

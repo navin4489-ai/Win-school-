@@ -117,7 +117,7 @@ dotnet run --project src/SchoolErp.Api
 - API: <http://localhost:5080/api> (`--launch-profile https` also serves <https://localhost:7080>)
 - Swagger: <http://localhost:5080/swagger>
 - Health: <http://localhost:5080/health>
-- Demo data is seeded on first development start.
+- On first start the API creates the platform school and super admin from `Bootstrap__AdminEmail` / `Bootstrap__AdminPassword` (see `.env.example`). No sample data is created.
 
 Run tests with `dotnet test backend/SchoolErp.sln`.
 
@@ -140,38 +140,17 @@ flutter pub get
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5080/api
 ```
 
-### End-to-end tests
+### First sign-in
 
-With the API running (`scripts/dev-api.sh` starts it on an in-memory demo database), run:
+Sign in with the super admin created from the `Bootstrap__*` settings, then:
 
-```bash
-node tests/e2e/api-e2e.mjs http://localhost:5080
-```
+1. **Schools** → create each school with its admin account and platform payment type.
+2. The school admin sets up classes, sections and subjects (**Classes & subjects**), staff (**People & HR** / **Users & roles**) and fee plans (**Fees → Fee setup**).
+3. Students are added through **Admissions**; each enrolment creates a parent login (admission number + temporary password).
 
-The suite makes 120 checks. It covers every module workflow (admission → enrolment, fees, refunds, attendance, the exam lifecycle, homework, HR, library, transport, inventory, LMS, notifications, reports). It also checks role isolation: parents see only their linked children, and students see only themselves.
+### Android build
 
-### Android test build
-
-Each push that changes `mobile/` builds an APK with the **Mobile APK** workflow and publishes it to the
-[`mobile-latest` release](../../releases/tag/mobile-latest). Install it on an Android phone, then enter
-the API address on the login screen (for example `https://erp.yourschool.in` or `192.168.1.20:5080`).
-
-### Demo accounts
-
-| Role | Email | Password |
-| --- | --- | --- |
-| Super Admin | `superadmin@demo.edu` | `Passw0rd!` |
-| Principal | `principal@demo.edu` | `Passw0rd!` |
-| Admission Manager | `admissions@demo.edu` | `Passw0rd!` |
-| Accountant | `accounts@demo.edu` | `Passw0rd!` |
-| Teacher | `teacher@demo.edu` | `Passw0rd!` |
-| Parent | `parent@demo.edu` | `Passw0rd!` |
-| Student | `student@demo.edu` | `Passw0rd!` |
-| HR Manager | `hr@demo.edu` | `Passw0rd!` |
-| Librarian | `librarian@demo.edu` | `Passw0rd!` |
-| Transport Manager | `transport@demo.edu` | `Passw0rd!` |
-
-> Demo credentials are seeded **only** in the Development environment with `Seed:Enabled=true`. Never enable them in production.
+`flutter build apk --release --dart-define=API_BASE_URL=https://school.wintechinov.com/api` from `mobile/school_erp_app`. Release signing reads `android/key.properties` (kept outside the repository).
 
 ### Docker (full stack)
 

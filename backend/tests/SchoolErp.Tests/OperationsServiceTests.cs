@@ -59,7 +59,7 @@ public sealed class OperationsServiceTests
         var employee = new Employee
         {
             SchoolId = user.SchoolId!.Value, EmployeeNo = "EMP-1", FirstName = "Asha", LastName = "Rao",
-            Email = "asha@demo.edu", JoiningDate = new DateOnly(2025, 1, 1), Status = EmploymentStatus.Active
+            Email = "asha@school.test", JoiningDate = new DateOnly(2025, 1, 1), Status = EmploymentStatus.Active
         };
         db.Add(employee);
         await db.SaveChangesAsync();
@@ -107,7 +107,7 @@ public sealed class OperationsServiceTests
 
     private static async Task SeedSchoolAsync(AppDbContext db, TestCurrentUser user)
     {
-        var school = new School { Code = "DEMO", Name = "Demo School" };
+        var school = new School { Code = "TEST", Name = "Test School" };
         db.Add(school);
         await db.SaveChangesAsync();
         user.SchoolId = school.Id;

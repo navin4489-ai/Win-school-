@@ -183,26 +183,9 @@ app.MapGet("/health/ready", async (AppDbContext db, CancellationToken ct) =>
 
 app.MapControllers();
 
-if (app.Environment.IsDevelopment() && builder.Configuration.GetValue("Seed:Enabled", true))
 {
-    using var scope = app.Services.CreateScope();
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    try
-    {
-        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-        await db.Database.EnsureCreatedAsync();
-        await scope.ServiceProvider.GetRequiredService<DbInitializer>().InitializeAsync();
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex,
-            "Database initialisation failed. Check ConnectionStrings:Default and that the database is reachable.");
-        throw;
-    }
-}
-else if (!app.Environment.IsDevelopment())
-{
-    // Production: create the schema if missing and the first super admin from secrets.
+    // Every environment: create the schema if missing and the first super admin from
+    // configuration (Bootstrap__*). No sample data is ever created.
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     await db.Database.EnsureCreatedAsync();

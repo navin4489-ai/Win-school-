@@ -29,7 +29,7 @@ public sealed class FeeServiceTests
             IdempotencyKey = "idem-1"
         });
 
-        Assert.StartsWith("RCPT-DEMO-", first.ReceiptNo);
+        Assert.StartsWith("RCPT-TEST-", first.ReceiptNo);
         Assert.Equal(500m, first.Amount);
 
         var afterFirst = await db.FeeInstallments.AsNoTracking().FirstAsync(i => i.Id == installment.Id);
@@ -222,7 +222,7 @@ public sealed class FeeServiceTests
     private static async Task<(Student Student, FeeInstallment Installment)> SeedAsync(AppDbContext db,
         TestCurrentUser user, TestClock clock)
     {
-        var school = new School { Code = "DEMO", Name = "Demo School" };
+        var school = new School { Code = "TEST", Name = "Test School" };
         db.Add(school);
         await db.SaveChangesAsync();
         user.SchoolId = school.Id;

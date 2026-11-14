@@ -94,7 +94,7 @@ public sealed class AcademicEditTests
 
     private static async Task<(SchoolClass, Section, Subject)> SeedAcademicsAsync(AppDbContext db, TestCurrentUser user)
     {
-        var school = new School { Code = "DEMO", Name = "Demo School" };
+        var school = new School { Code = "TEST", Name = "Test School" };
         db.Add(school);
         await db.SaveChangesAsync();
         user.SchoolId = school.Id;

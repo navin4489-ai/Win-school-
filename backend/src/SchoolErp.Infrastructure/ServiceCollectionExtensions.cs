@@ -38,8 +38,8 @@ public static class ServiceCollectionExtensions
         {
             if (useInMemory)
             {
-                // Demo/local only: data is lost on restart.
-                options.UseInMemoryDatabase("SchoolErpDemo");
+                // Local testing only: data is lost on restart.
+                options.UseInMemoryDatabase("SchoolErpLocal");
                 return;
             }
 
@@ -73,20 +73,10 @@ public static class ServiceCollectionExtensions
             services.AddScoped<IFileStorage, DatabaseFileStorage>();
         services.AddScoped<INotificationSender, LogNotificationSender>();
 
-        // Online payments: "Dummy" (test gateway, never in Production) or disabled.
-        var paymentProvider = configuration["Payments:Provider"] ?? "Disabled";
+        // Online payments stay disabled (pay at the school office) until a real payment
+        // provider is integrated; nothing is ever marked paid without a verified gateway payment.
         var isProduction = string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Production", StringComparison.OrdinalIgnoreCase);
-        if (string.Equals(paymentProvider, "Dummy", StringComparison.OrdinalIgnoreCase))
-        {
-            if (isProduction)
-                throw new InvalidOperationException(
-                    "Payments:Provider=Dummy is a test gateway and cannot be used in Production.");
-            services.AddScoped<IPaymentGateway, DummyPaymentGateway>();
-        }
-        else
-        {
-            services.AddScoped<IPaymentGateway, DisabledPaymentGateway>();
-        }
+        services.AddScoped<IPaymentGateway, DisabledPaymentGateway>();
         services.AddScoped<DbInitializer>();
 
         // Live notification fan-out is process local; a multi-node deployment must

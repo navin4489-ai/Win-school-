@@ -20,14 +20,14 @@ public sealed class AuthServiceTests
 
         var response = await service.LoginAsync(new LoginRequest
         {
-            Email = "accountant@demo.edu",
+            Email = "accountant@school.test",
             Password = "Passw0rd!",
-            SchoolCode = "DEMO"
+            SchoolCode = "TEST"
         });
 
         Assert.False(string.IsNullOrWhiteSpace(response.AccessToken));
         Assert.False(string.IsNullOrWhiteSpace(response.RefreshToken));
-        Assert.Equal("accountant@demo.edu", response.User.Email);
+        Assert.Equal("accountant@school.test", response.User.Email);
         Assert.Equal(RoleCodes.Accountant, response.User.RoleCode);
         Assert.Contains(Permissions.FeesCollect, response.User.Permissions);
         Assert.True(response.ExpiresAtUtc > clock.UtcNow);
@@ -43,7 +43,7 @@ public sealed class AuthServiceTests
         {
             var failure = await Assert.ThrowsAsync<DomainException>(() => service.LoginAsync(new LoginRequest
             {
-                Email = "accountant@demo.edu",
+                Email = "accountant@school.test",
                 Password = "WrongPassword1!"
             }));
             Assert.Equal("unauthorized", failure.Code);
@@ -51,7 +51,7 @@ public sealed class AuthServiceTests
 
         var locked = await Assert.ThrowsAsync<DomainException>(() => service.LoginAsync(new LoginRequest
         {
-            Email = "accountant@demo.edu",
+            Email = "accountant@school.test",
             Password = "Passw0rd!"
         }));
 
@@ -79,7 +79,7 @@ public sealed class AuthServiceTests
         var user = new TestCurrentUser { UserId = null, Permissions = Array.Empty<string>() };
         var db = TestDb.Create(user, clock);
 
-        var school = new School { Code = "DEMO", Name = "Demo School" };
+        var school = new School { Code = "TEST", Name = "Test School" };
         db.Add(school);
         await db.SaveChangesAsync();
         user.SchoolId = school.Id;
@@ -99,8 +99,8 @@ public sealed class AuthServiceTests
         var hasher = new PasswordHasherService();
         var account = new UserAccount
         {
-            SchoolId = school.Id, Email = "accountant@demo.edu", NormalizedEmail = "accountant@demo.edu",
-            FullName = "Demo Accountant", PasswordHash = hasher.Hash("Passw0rd!"),
+            SchoolId = school.Id, Email = "accountant@school.test", NormalizedEmail = "accountant@school.test",
+            FullName = "Test Accountant", PasswordHash = hasher.Hash("Passw0rd!"),
             RoleId = role.Id, IsActive = true, EmailConfirmed = true
         };
         db.Add(account);

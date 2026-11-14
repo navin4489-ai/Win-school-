@@ -66,7 +66,6 @@ interface NavSection { label: string; items: NavItem[]; }
           <button class="menu-btn" aria-label="Open menu" (click)="menuOpen.set(true)">☰</button>
           <div class="topbar-title">School Management System</div>
           <div class="spacer"></div>
-          <span class="session">Demo environment</span>
 
           <button
             class="icon-btn bell"

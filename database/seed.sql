@@ -1,12 +1,9 @@
 /*
   Reference data seed for SQL Server deployments.
 
-  Demo tenants, users, classes and sample records are created by the API's
-  DbInitializer in Development. This script only inserts the permission catalogue,
+  Schools, users and records are created through the application. This script only
+  inserts the permission catalogue,
   because permissions are not tenant-scoped and are safe to create everywhere.
-
-  Default demo password (created by the API seeder): Passw0rd!
-  Change or remove demo accounts before production use.
 */
 SET NOCOUNT ON;
 GO

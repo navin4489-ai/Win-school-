@@ -22,7 +22,7 @@ internal sealed class TestCurrentUser : ICurrentUser
     public int? EmployeeId { get; set; }
     public int? GuardianId { get; set; }
     public int? StudentId { get; set; }
-    public string? Email { get; set; } = "tester@demo.edu";
+    public string? Email { get; set; } = "tester@school.test";
     public string? IpAddress { get; set; } = "127.0.0.1";
     public string? UserAgent { get; set; } = "xunit";
     public bool IsAuthenticated => UserId is not null;

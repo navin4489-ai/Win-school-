@@ -4,7 +4,7 @@
 
 | Environment | Purpose | Data |
 | --- | --- | --- |
-| Local | Development | Seeded demo school |
+| Local | Development | Empty; super admin from Bootstrap settings |
 | Staging | UAT + DAST | Anonymised copy |
 | Production | Live schools | Encrypted, backed up |
 
@@ -85,7 +85,7 @@ the lifetime of the connection.
 
 - [ ] DNS + TLS certificates; HSTS on.
 - [ ] CORS origins limited to portal domains.
-- [ ] Production JWT key, seed disabled, demo accounts removed.
+- [ ] Production JWT key set; Bootstrap admin password rotated after first sign-in.
 - [ ] `Fees:Penalty` policy reviewed with the school and set to the agreed daily amount and cap.
 - [ ] A real payment provider configured, or the dummy gateway explicitly accepted for the launch.
 - [ ] SMS / email / WhatsApp providers configured (`LogNotificationSender` only writes to the log).
