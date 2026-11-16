@@ -229,7 +229,7 @@ public sealed class AttendanceService
                 CheckInUtc = record?.CheckInUtc, CheckOutUtc = record?.CheckOutUtc,
                 Status = record?.Status ?? AttendanceStatus.Absent,
                 IsLate = record?.CheckInUtc?.TimeOfDay > LateAfter,
-                CheckInPhotoUrl = record?.CheckInPhotoUrl, CheckOutPhotoUrl = record?.CheckOutPhotoUrl,
+                CheckInPhotoUrl = FileUrlSigner.SignStoredUrl(record?.CheckInPhotoUrl), CheckOutPhotoUrl = FileUrlSigner.SignStoredUrl(record?.CheckOutPhotoUrl),
                 CheckInLatitude = record?.CheckInLatitude, CheckInLongitude = record?.CheckInLongitude,
                 CheckOutLatitude = record?.CheckOutLatitude, CheckOutLongitude = record?.CheckOutLongitude,
                 CheckInAddress = record?.CheckInAddress, CheckOutAddress = record?.CheckOutAddress
@@ -343,8 +343,8 @@ public sealed class AttendanceService
                 CheckOutUtc = r.CheckOutUtc,
                 Status = r.Status,
                 IsLate = r.CheckInUtc?.TimeOfDay > LateAfter,
-                CheckInPhotoUrl = r.CheckInPhotoUrl,
-                CheckOutPhotoUrl = r.CheckOutPhotoUrl,
+                CheckInPhotoUrl = FileUrlSigner.SignStoredUrl(r.CheckInPhotoUrl),
+                CheckOutPhotoUrl = FileUrlSigner.SignStoredUrl(r.CheckOutPhotoUrl),
                 CheckInLatitude = r.CheckInLatitude,
                 CheckInLongitude = r.CheckInLongitude,
                 CheckOutLatitude = r.CheckOutLatitude,
@@ -423,7 +423,7 @@ public sealed class AttendanceService
             EmployeeId = employee.Id, EmployeeName = employee.FullName, EmployeeNo = employee.EmployeeNo,
             Date = record.AttendanceDate, CheckInUtc = record.CheckInUtc, CheckOutUtc = record.CheckOutUtc,
             Status = record.Status, IsLate = record.CheckInUtc?.TimeOfDay > LateAfter,
-            CheckInPhotoUrl = record.CheckInPhotoUrl, CheckOutPhotoUrl = record.CheckOutPhotoUrl,
+            CheckInPhotoUrl = FileUrlSigner.SignStoredUrl(record.CheckInPhotoUrl), CheckOutPhotoUrl = FileUrlSigner.SignStoredUrl(record.CheckOutPhotoUrl),
             CheckInLatitude = record.CheckInLatitude, CheckInLongitude = record.CheckInLongitude,
             CheckOutLatitude = record.CheckOutLatitude, CheckOutLongitude = record.CheckOutLongitude,
             CheckInAddress = record.CheckInAddress, CheckOutAddress = record.CheckOutAddress

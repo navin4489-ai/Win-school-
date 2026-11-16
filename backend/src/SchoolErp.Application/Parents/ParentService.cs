@@ -26,7 +26,7 @@ public sealed class ParentService
         var guardianId = await ResolveGuardianIdAsync(ct);
         if (guardianId is null) return new List<ChildDto>();
 
-        return await (
+        var children = await (
             from sp in _db.StudentParents
             join s in _db.Students on sp.StudentId equals s.Id
             join klass in _db.Classes on s.ClassId equals klass.Id
@@ -39,6 +39,8 @@ public sealed class ParentService
                 FullName = s.FirstName + " " + s.LastName, ClassName = klass.Name,
                 SectionName = section.Name, PhotoUrl = s.PhotoUrl, RollNo = s.RollNo
             }).ToListAsync(ct);
+        foreach (var c in children) c.PhotoUrl = FileUrlSigner.SignStoredUrl(c.PhotoUrl);
+        return children;
     }
 
     public async Task<ChildOverviewDto> GetOverviewAsync(int studentId, CancellationToken ct = default)

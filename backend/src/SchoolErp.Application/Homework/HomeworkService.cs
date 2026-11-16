@@ -64,7 +64,7 @@ public sealed class HomeworkService
         {
             Id = x.h.Id, ClassId = x.h.ClassId, SectionId = x.h.SectionId,
             SubjectName = x.SubjectName, TeacherName = x.TeacherName, Title = x.h.Title,
-            Description = x.h.Description, AttachmentUrl = x.h.AttachmentUrl, DueAtUtc = x.h.DueAtUtc,
+            Description = x.h.Description, AttachmentUrl = FileUrlSigner.SignStoredUrl(x.h.AttachmentUrl), DueAtUtc = x.h.DueAtUtc,
             MaxMarks = x.h.MaxMarks, SubmissionCount = counts.GetValueOrDefault(x.h.Id),
             IsOverdue = x.h.DueAtUtc < _clock.UtcNow, IsPublished = x.h.IsPublished, EmployeeId = x.h.EmployeeId
         }).ToList();
@@ -106,7 +106,7 @@ public sealed class HomeworkService
         {
             Id = homework.Id, ClassId = homework.ClassId, SectionId = homework.SectionId,
             SubjectName = subjectName, TeacherName = teacherName, Title = homework.Title,
-            Description = homework.Description, AttachmentUrl = homework.AttachmentUrl,
+            Description = homework.Description, AttachmentUrl = FileUrlSigner.SignStoredUrl(homework.AttachmentUrl),
             DueAtUtc = homework.DueAtUtc, MaxMarks = homework.MaxMarks, SubmissionCount = submissions,
             IsOverdue = homework.DueAtUtc < _clock.UtcNow, IsPublished = homework.IsPublished,
             EmployeeId = homework.EmployeeId
@@ -167,7 +167,7 @@ public sealed class HomeworkService
         {
             Id = homework.Id, ClassId = homework.ClassId, SectionId = homework.SectionId,
             SubjectName = subject.Name, TeacherName = string.Empty, Title = homework.Title,
-            Description = homework.Description, AttachmentUrl = homework.AttachmentUrl,
+            Description = homework.Description, AttachmentUrl = FileUrlSigner.SignStoredUrl(homework.AttachmentUrl),
             DueAtUtc = homework.DueAtUtc, MaxMarks = homework.MaxMarks,
             IsPublished = homework.IsPublished, EmployeeId = homework.EmployeeId
         };
@@ -179,7 +179,7 @@ public sealed class HomeworkService
             ?? throw DomainException.NotFound("Homework");
         EnsureCanManage(homework);
 
-        return await (
+        var list = await (
             from submission in _db.AssignmentSubmissions
             join student in _db.Students on submission.StudentId equals student.Id
             where submission.HomeworkId == homework.Id && !submission.IsDeleted
@@ -192,6 +192,8 @@ public sealed class HomeworkService
                 Remarks = submission.Remarks, Marks = submission.Marks, Feedback = submission.Feedback,
                 IsLate = submission.IsLate
             }).ToListAsync(ct);
+        foreach (var s in list) s.FileUrl = FileUrlSigner.SignStoredUrl(s.FileUrl);
+        return list;
     }
 
     public async Task<SubmissionDto> SubmitAsync(int homeworkId, SubmitHomeworkRequest request, CancellationToken ct = default)
@@ -237,7 +239,7 @@ public sealed class HomeworkService
         {
             Id = submission.Id, HomeworkId = submission.HomeworkId, StudentId = submission.StudentId,
             StudentName = student.FullName, SubmittedAtUtc = submission.SubmittedAtUtc,
-            FileUrl = submission.FileUrl, Remarks = submission.Remarks,
+            FileUrl = FileUrlSigner.SignStoredUrl(submission.FileUrl), Remarks = submission.Remarks,
             Marks = submission.Marks, Feedback = submission.Feedback, IsLate = submission.IsLate
         };
     }
@@ -263,7 +265,7 @@ public sealed class HomeworkService
         {
             Id = submission.Id, HomeworkId = submission.HomeworkId, StudentId = submission.StudentId,
             StudentName = student.FullName, SubmittedAtUtc = submission.SubmittedAtUtc,
-            FileUrl = submission.FileUrl, Remarks = submission.Remarks,
+            FileUrl = FileUrlSigner.SignStoredUrl(submission.FileUrl), Remarks = submission.Remarks,
             Marks = submission.Marks, Feedback = submission.Feedback, IsLate = submission.IsLate
         };
     }

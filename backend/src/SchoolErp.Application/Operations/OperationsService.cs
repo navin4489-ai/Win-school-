@@ -675,7 +675,7 @@ public sealed class OperationsService
         if (classId is > 0) query = query.Where(x => x.m.ClassId == classId);
         if (subjectId is > 0) query = query.Where(x => x.m.SubjectId == subjectId);
 
-        return await query.OrderByDescending(x => x.m.CreatedAtUtc).Take(200)
+        var materials = await query.OrderByDescending(x => x.m.CreatedAtUtc).Take(200)
             .Select(x => new StudyMaterialDto
             {
                 Id = x.m.Id, ClassId = x.m.ClassId, SectionId = x.m.SectionId, SubjectId = x.m.SubjectId,
@@ -683,6 +683,8 @@ public sealed class OperationsService
                 FileUrl = x.m.FileUrl, VideoUrl = x.m.VideoUrl, Chapter = x.m.Chapter,
                 CreatedAtUtc = x.m.CreatedAtUtc
             }).ToListAsync(ct);
+        foreach (var m in materials) m.FileUrl = FileUrlSigner.SignStoredUrl(m.FileUrl);
+        return materials;
     }
 
     public async Task<StudyMaterialDto> CreateMaterialAsync(SaveStudyMaterialRequest request, CancellationToken ct = default)
@@ -710,7 +712,7 @@ public sealed class OperationsService
         {
             Id = material.Id, ClassId = material.ClassId, SectionId = material.SectionId,
             SubjectId = material.SubjectId, SubjectName = subject.Name, Title = material.Title,
-            Description = material.Description, FileUrl = material.FileUrl, VideoUrl = material.VideoUrl,
+            Description = material.Description, FileUrl = FileUrlSigner.SignStoredUrl(material.FileUrl), VideoUrl = material.VideoUrl,
             Chapter = material.Chapter, CreatedAtUtc = material.CreatedAtUtc
         };
     }

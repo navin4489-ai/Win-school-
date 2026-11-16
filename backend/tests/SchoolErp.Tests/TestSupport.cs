@@ -6,6 +6,16 @@ using SchoolErp.Infrastructure.Services;
 
 namespace SchoolErp.Tests;
 
+internal static class TestSignerInit
+{
+    [System.Runtime.CompilerServices.ModuleInitializer]
+    internal static void Init()
+    {
+        // Services under test call FileUrlSigner; give it a secret once for the whole run.
+        if (!FileUrlSigner.IsConfigured) FileUrlSigner.Initialize("test-secret-key");
+    }
+}
+
 internal sealed class TestClock : IDateTimeProvider
 {
     public TestClock(DateTime? utcNow = null) => UtcNow = utcNow ?? new DateTime(2026, 11, 12, 6, 0, 0, DateTimeKind.Utc);

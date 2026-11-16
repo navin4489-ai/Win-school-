@@ -346,7 +346,7 @@ public sealed class AuthService
             RoleCode = role?.Code ?? string.Empty,
             SchoolId = user.SchoolId,
             SchoolName = school?.Name ?? "School",
-            SchoolLogoUrl = school?.LogoUrl,
+            SchoolLogoUrl = FileUrlSigner.SignStoredUrl(school?.LogoUrl),
             BranchId = user.BranchId,
             EmployeeId = user.EmployeeId,
             GuardianId = user.GuardianId,

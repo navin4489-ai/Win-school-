@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using SchoolErp.Api.Middleware;
 using SchoolErp.Application;
@@ -124,6 +125,24 @@ app.Use(async (context, next) =>
         headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";
     if (context.Request.Path.StartsWithSegments("/api"))
         headers["Cache-Control"] = "no-store";
+
+    // A deny-all CSP protects API answers that a browser could be tricked into
+    // rendering. It is decided in OnStarting because only then is the content type
+    // known: documents the portal opens directly in a tab (PDF receipts, HTML
+    // certificates, images) must not be locked down or they stop rendering.
+    context.Response.OnStarting(() =>
+    {
+        var contentType = context.Response.ContentType ?? string.Empty;
+        var rendersInBrowser =
+            contentType.StartsWith("text/html", StringComparison.OrdinalIgnoreCase) ||
+            contentType.StartsWith("application/pdf", StringComparison.OrdinalIgnoreCase) ||
+            contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase);
+        if (!rendersInBrowser)
+            context.Response.Headers["Content-Security-Policy"] =
+                "default-src 'none'; frame-ancestors 'none'; base-uri 'none'";
+        return Task.CompletedTask;
+    });
+
     await next();
 });
 
@@ -154,9 +173,29 @@ app.UseStaticFiles(new StaticFileOptions
     RequestPath = "/files"
 });
 
-app.MapGet("/files/db/{name}", async (string name, AppDbContext db, HttpContext http, CancellationToken ct) =>
+app.MapGet("/files/db/{name}", async (string name, AppDbContext db, HttpContext http,
+    IOptions<SchoolErp.Application.Common.FileSigningOptions> signingOptions, CancellationToken ct) =>
 {
     if (!SchoolErp.Infrastructure.Services.DatabaseFileStorage.TryParseId(name, out var id)) return Results.NotFound();
+
+    // Access control: a request is allowed when ANY holds —
+    //   (a) a valid signature for this exact path (constant-time), or
+    //   (b) a valid bearer token (authentication middleware has run globally), or
+    //   (c) the grace window Files:SignedFromUtc has not yet elapsed, so links already
+    //       cached by browsers/apps before signing was switched on keep working.
+    // After the grace instant (or when it is absent), unsigned & unauthenticated -> 403.
+    var requestPath = http.Request.Path.Value ?? string.Empty;
+    var sig = http.Request.Query["sig"].ToString();
+    var signatureValid = SchoolErp.Application.Common.FileUrlSigner.Validate(requestPath, sig);
+    var authenticated = http.User?.Identity?.IsAuthenticated == true;
+    var signedFrom = signingOptions.Value.SignedFromUtc;
+    var inGrace = signedFrom.HasValue && DateTime.UtcNow < signedFrom.Value;
+
+    if (!signatureValid && !authenticated && !inGrace)
+        return Results.Json(
+            new { detail = "This file link is missing a valid signature. Reload the page to get a fresh link." },
+            statusCode: StatusCodes.Status403Forbidden);
+
     var blob = await db.StoredBlobs.AsNoTracking().FirstOrDefaultAsync(b => b.Id == id, ct);
     if (blob is null) return Results.NotFound();
 

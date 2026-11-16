@@ -9,7 +9,7 @@ public sealed class ChildDto
     public string FullName { get; init; } = string.Empty;
     public string ClassName { get; init; } = string.Empty;
     public string SectionName { get; init; } = string.Empty;
-    public string? PhotoUrl { get; init; }
+    public string? PhotoUrl { get; set; }
     public string? RollNo { get; init; }
 }
 

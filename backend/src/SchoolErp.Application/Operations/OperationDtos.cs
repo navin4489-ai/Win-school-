@@ -251,7 +251,7 @@ public sealed class StudyMaterialDto
     public string SubjectName { get; init; } = string.Empty;
     public string Title { get; init; } = string.Empty;
     public string? Description { get; init; }
-    public string? FileUrl { get; init; }
+    public string? FileUrl { get; set; }
     public string? VideoUrl { get; init; }
     public string? Chapter { get; init; }
     public DateTime CreatedAtUtc { get; init; }

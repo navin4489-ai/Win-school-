@@ -35,8 +35,11 @@ public sealed class PlatformService
         if (!_user.IsPlatformAdmin) throw DomainException.Forbidden("Only the super admin can manage schools.");
     }
 
-    public IReadOnlyList<ModuleDto> GetModules() =>
-        SchoolModules.Toggleable.Select(m => new ModuleDto { Key = m.Key, Label = m.Label }).ToList();
+    public IReadOnlyList<ModuleDto> GetModules()
+    {
+        EnsurePlatformAdmin();
+        return SchoolModules.Toggleable.Select(m => new ModuleDto { Key = m.Key, Label = m.Label }).ToList();
+    }
 
     // ---------------------------------------------------------------- schools
 
@@ -469,7 +472,7 @@ public sealed class PlatformService
 
     private static SchoolSummaryDto Map(School s, int users, int students) => new()
     {
-        Id = s.Id, Code = s.Code, Name = s.Name, LegalName = s.LegalName, LogoUrl = s.LogoUrl, Email = s.Email,
+        Id = s.Id, Code = s.Code, Name = s.Name, LegalName = s.LegalName, LogoUrl = FileUrlSigner.SignStoredUrl(s.LogoUrl), Email = s.Email,
         Phone = s.Phone, AddressLine1 = s.AddressLine1, City = s.City, State = s.State, PostalCode = s.PostalCode,
         IsActive = s.IsActive, EnabledModules = SchoolModules.Parse(s.EnabledModules).OrderBy(m => m).ToList(),
         PlatformFeeType = s.PlatformFeeType, PlatformFeeAmount = s.PlatformFeeAmount, PlatformFeeNotes = s.PlatformFeeNotes,

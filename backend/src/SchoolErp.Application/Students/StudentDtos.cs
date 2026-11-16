@@ -22,7 +22,7 @@ public sealed class StudentListItemDto
     public string SectionName { get; init; } = string.Empty;
     public string? RollNo { get; init; }
     public string? Phone { get; init; }
-    public string? PhotoUrl { get; init; }
+    public string? PhotoUrl { get; set; }
     public StudentStatus Status { get; init; }
     public DateOnly AdmissionDate { get; init; }
 }
@@ -95,7 +95,7 @@ public sealed class StudentDocumentDto
     public DocumentType DocumentType { get; init; }
     public bool IsVerified { get; init; }
     public DateTime CreatedAtUtc { get; init; }
-    public string? Url { get; init; }
+    public string? Url { get; set; }
 }
 
 public sealed class UpdateStudentRequest

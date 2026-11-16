@@ -105,6 +105,15 @@ public static class ServiceCollectionExtensions
         services.Configure<StorageOptions>(configuration.GetSection(StorageOptions.SectionName));
         services.Configure<FeePenaltyOptions>(configuration.GetSection(FeePenaltyOptions.SectionName));
 
+        // Signed file URLs: HMAC secret from Files:Secret, falling back to Jwt:SigningKey.
+        // The secret is handed to the static signer once; it is never logged.
+        services.Configure<FileSigningOptions>(configuration.GetSection(FileSigningOptions.SectionName));
+        var fileSecret = configuration["Files:Secret"];
+        if (string.IsNullOrWhiteSpace(fileSecret))
+            fileSecret = configuration["Jwt:SigningKey"];
+        FileUrlSigner.Initialize(fileSecret ?? string.Empty);
+
+
         services.AddOptions<JwtOptions>()
             .Bind(configuration.GetSection(JwtOptions.SectionName))
             .Validate(o => !string.IsNullOrWhiteSpace(o.Issuer), "Jwt:Issuer is required.")

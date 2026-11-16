@@ -57,11 +57,18 @@ public sealed class DatabaseFileStorage : IFileStorage
     public string? GetDownloadUrl(string path, TimeSpan lifetime)
     {
         if (string.IsNullOrWhiteSpace(path)) return null;
+        string url;
         if (path.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith("https://", StringComparison.OrdinalIgnoreCase) ||
             path.StartsWith('/'))
-            return path;
-        return "/files/" + path.TrimStart('/');
+            url = path;
+        else
+            url = "/files/" + path.TrimStart('/');
+
+        // Sign db blob URLs so /files/db/{id} is not anonymously enumerable or cross-tenant
+        // readable. Signatures do not expire (the id is unguessable and content immutable);
+        // the caller's lifetime drives the HTTP cache window on the endpoint instead.
+        return FileUrlSigner.SignStoredUrl(url);
     }
 
     /// <summary>Reads the blob id out of "db/{id}.ext" or "/files/db/{id}.ext".</summary>

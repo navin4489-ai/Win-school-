@@ -50,7 +50,7 @@ public sealed class SubmissionDto
     public int StudentId { get; init; }
     public string StudentName { get; init; } = string.Empty;
     public DateTime SubmittedAtUtc { get; init; }
-    public string? FileUrl { get; init; }
+    public string? FileUrl { get; set; }
     public string? Remarks { get; init; }
     public decimal? Marks { get; init; }
     public string? Feedback { get; init; }

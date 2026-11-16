@@ -69,7 +69,7 @@ public sealed class StudentService
         if (query.Status is not null) source = source.Where(x => x.s.Status == query.Status);
         else source = source.Where(x => x.s.Status == StudentStatus.Active);
 
-        return await source.OrderBy(x => x.ClassName).ThenBy(x => x.s.FirstName)
+        var page = await source.OrderBy(x => x.ClassName).ThenBy(x => x.s.FirstName)
             .Select(x => new StudentListItemDto
             {
                 Id = x.s.Id, AdmissionNo = x.s.AdmissionNo,
@@ -79,6 +79,10 @@ public sealed class StudentService
                 AdmissionDate = x.s.AdmissionDate
             })
             .ToPagedResultAsync(query.Page, query.PageSize, ct);
+
+        // Sign stored file URLs after materialization (the signer cannot run inside an EF query).
+        foreach (var item in page.Items) item.PhotoUrl = FileUrlSigner.SignStoredUrl(item.PhotoUrl);
+        return page;
     }
 
     public async Task<StudentDetailDto> GetAsync(int id, CancellationToken ct = default)
@@ -126,6 +130,7 @@ public sealed class StudentService
                 SizeBytes = d.SizeBytes, DocumentType = sd.DocumentType, IsVerified = sd.IsVerified,
                 CreatedAtUtc = sd.CreatedAtUtc, Url = d.PublicUrl
             }).ToListAsync(ct);
+        foreach (var d in documents) d.Url = FileUrlSigner.SignStoredUrl(d.Url);
 
         return new StudentDetailDto
         {
@@ -136,7 +141,7 @@ public sealed class StudentService
             DateOfBirth = student.DateOfBirth, Gender = student.Gender, BloodGroup = student.BloodGroup,
             Email = student.Email, Phone = student.Phone, Address = student.Address, City = student.City,
             State = student.State, PostalCode = student.PostalCode, AdmissionDate = student.AdmissionDate,
-            Status = student.Status, PhotoUrl = student.PhotoUrl, PreviousSchool = student.PreviousSchool,
+            Status = student.Status, PhotoUrl = FileUrlSigner.SignStoredUrl(student.PhotoUrl), PreviousSchool = student.PreviousSchool,
             Guardians = guardians, Enrollments = enrollments, Documents = documents
         };
     }

@@ -186,7 +186,7 @@ public sealed class AdministrationService
         return new SchoolDto
         {
             Id = school.Id, Code = school.Code, Name = school.Name, LegalName = school.LegalName,
-            LogoUrl = school.LogoUrl, Email = school.Email, Phone = school.Phone,
+            LogoUrl = FileUrlSigner.SignStoredUrl(school.LogoUrl), Email = school.Email, Phone = school.Phone,
             AddressLine1 = school.AddressLine1, AddressLine2 = school.AddressLine2, City = school.City,
             State = school.State, PostalCode = school.PostalCode, Country = school.Country,
             TimeZone = school.TimeZone, CurrencyCode = school.CurrencyCode

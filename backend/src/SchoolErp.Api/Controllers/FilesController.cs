@@ -68,7 +68,7 @@ public sealed class FilesController : ControllerBase
 
         return Ok(new UploadedFileDto
         {
-            Url = stored.Url ?? string.Empty,
+            Url = FileUrlSigner.SignStoredUrl(stored.Url) ?? string.Empty,
             Path = stored.Path,
             FileName = Path.GetFileName(file.FileName ?? "upload"),
             ContentType = contentType,
