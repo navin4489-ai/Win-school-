@@ -40,6 +40,11 @@ services:
         value: https://school.wintechinov.com
       - key: RateLimiting__PermitsPerMinute
         value: "1200"
+      # Grace window for signed /files/db URLs: until this instant, unsigned
+      # (already-cached) file links still load. After it, only signed/bearer
+      # requests are served. Run the one-time URL-signing migration before it.
+      - key: Files__SignedFromUtc
+        value: "2026-12-01T00:00:00Z"
       # First start only: the platform super admin. Set these in the dashboard;
       # they are never committed. The password must be at least 12 characters.
       - key: Bootstrap__SchoolCode
