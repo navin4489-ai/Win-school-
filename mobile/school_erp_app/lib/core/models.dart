@@ -699,7 +699,7 @@ DateTime? parseUtc(Object? v) {
   if (text.isEmpty) return null;
   final hasTime = text.contains('T') || text.contains(' ');
   final hasZone = RegExp(r'([zZ]|[+-]\d{2}:?\d{2})$').hasMatch(text);
-  if (hasTime && !hasZone) text = 'Z';
+  if (hasTime && !hasZone) text += 'Z';
   return DateTime.tryParse(text)?.toLocal();
 }
 
