@@ -8,6 +8,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using SchoolErp.Api.Middleware;
 using SchoolErp.Application;
+using SchoolErp.Application.Common;
 using SchoolErp.Infrastructure;
 using SchoolErp.Infrastructure.Persistence;
 
@@ -15,6 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddApplicationServices();
 builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.Configure<AppDownloadOptions>(builder.Configuration.GetSection(AppDownloadOptions.SectionName));
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>

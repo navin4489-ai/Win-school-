@@ -2,6 +2,7 @@ import { Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { AuthService } from '../../core/auth.service';
+import { appDownloadUrl } from '../../core/app-download-url';
 
 @Component({
   selector: 'app-login',
@@ -88,6 +89,20 @@ import { AuthService } from '../../core/auth.service';
             }
           </div>
 
+          <a class="app-cta" [href]="downloadUrl" download="WintechSchool.apk"
+             aria-label="Download the Wintech School ERP Android app">
+            <span class="app-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor">
+                <path d="M3.6 1.9 13.4 12 3.6 22.1a1.8 1.8 0 0 1-.9-1.6V3.5a1.8 1.8 0 0 1 .9-1.6Zm11.2 11L18 16.1l2.1-1.2c.7-.4.7-1.4 0-1.8L18 11.9l-3.2 3.1Zm-1.1 1.1L4.9 22.8c.3.2.7.3 1.1.2l9.2-5.3-1.3-1.3Zm0-2.2 1.3-1.3-9.2-5.3c-.4-.2-.8-.1-1.1.2l8.9 7.9c.1.1.1.2.1.3V12Zm3-2.1 1.9-1.1c.4-.2.4-.8 0-1L16.7 6.4l-1.7 1.7 1.7 1.6Z"/>
+              </svg>
+            </span>
+            <span class="app-copy">
+              <strong>Get the Android app</strong>
+              <small>Download the latest version (APK)</small>
+            </span>
+            <span class="app-arrow" aria-hidden="true">↓</span>
+          </a>
+
           <p class="secure">🔒 Never share your password. School staff will never ask you for it.</p>
         </div>
       </section>
@@ -155,6 +170,19 @@ import { AuthService } from '../../core/auth.service';
     .link:hover { text-decoration: underline; }
     .help-text { margin: 10px 0 0; padding: 11px 13px; border-radius: 10px; background: #f1f8f8; color: #3c4d5e;
       font-size: 13px; line-height: 1.5; text-align: left; }
+
+    .app-cta { display: flex; align-items: center; gap: 12px; margin-top: 20px; padding: 12px 14px;
+      border-radius: 14px; border: 1px solid #d7e9e6; background: #f2faf9; text-decoration: none;
+      color: #0b1f3a; transition: border-color .12s, background .12s, transform .12s; }
+    .app-cta:hover { border-color: #0f8a86; background: #e8f7f5; transform: translateY(-1px); }
+    .app-cta:focus-visible { outline: 3px solid rgba(15, 138, 134, .35); outline-offset: 2px; }
+    .app-icon { width: 38px; height: 38px; flex: none; border-radius: 11px; display: grid; place-items: center;
+      background: linear-gradient(135deg, #0f8a86, #0c6f6c); color: #fff; }
+    .app-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .app-copy strong { font-size: 13.5px; }
+    .app-copy small { font-size: 11.5px; color: #5b6b7c; }
+    .app-arrow { margin-left: auto; font-size: 19px; font-weight: 700; color: #0f8a86; }
+
     .secure { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid #edf1f5; font-size: 11.5px; color: #8a9aab; text-align: center; }
 
     @media (max-width: 900px) {
@@ -179,6 +207,7 @@ export class LoginComponent {
   readonly showPassword = signal(false);
   readonly helpOpen = signal(false);
   readonly year = new Date().getFullYear();
+  readonly downloadUrl = appDownloadUrl(typeof window === 'undefined' ? '' : window.location.hostname);
 
   readonly features = [
     { icon: '⌂', title: 'Multi-school', text: 'Each school sees only its own data.' },

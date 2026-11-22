@@ -5,6 +5,7 @@ import {
   NOTIFICATION_STREAM_PATH,
   notificationStreamUrl
 } from '../src/app/core/notification-stream-url.ts';
+import { APP_DOWNLOAD_PATH, appDownloadUrl } from '../src/app/core/app-download-url.ts';
 import { isParentRole } from '../src/app/core/roles.ts';
 import { attendanceSaveMessage } from '../src/app/pages/attendance/attendance-messages.ts';
 import { studentEditPayload } from '../src/app/pages/students/student-edit-payload.ts';
@@ -18,6 +19,20 @@ test('SSE stream uses the relative proxy path everywhere except the production p
   assert.equal(notificationStreamUrl('127.0.0.1'), NOTIFICATION_STREAM_PATH);
   assert.equal(notificationStreamUrl('localhost'), NOTIFICATION_STREAM_PATH);
   assert.equal(notificationStreamUrl('staging.example.test'), NOTIFICATION_STREAM_PATH);
+});
+
+test('APK download uses the API origin only on the production portal', () => {
+  assert.equal(
+    appDownloadUrl('school.wintechinov.com'),
+    `https://school-erp-api-3j9e.onrender.com${APP_DOWNLOAD_PATH}`
+  );
+  assert.equal(
+    appDownloadUrl('SCHOOL.WINTECHINOV.COM'),
+    `https://school-erp-api-3j9e.onrender.com${APP_DOWNLOAD_PATH}`
+  );
+  assert.equal(appDownloadUrl('127.0.0.1'), APP_DOWNLOAD_PATH);
+  assert.equal(appDownloadUrl('localhost'), APP_DOWNLOAD_PATH);
+  assert.equal(appDownloadUrl('staging.example.test'), APP_DOWNLOAD_PATH);
 });
 
 test('parent role detection is case-insensitive and null-safe', () => {
