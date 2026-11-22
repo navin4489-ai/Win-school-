@@ -283,26 +283,50 @@ public sealed class HomeworkService
 
     private async Task<int> ResolveTeacherAsync(int classId, int sectionId, int subjectId, CancellationToken ct)
     {
+        var isPrivileged = _user.IsInRole(RoleCodes.Principal) || _user.IsInRole(RoleCodes.Administrator) ||
+                           _user.IsInRole(RoleCodes.SchoolOwner) || _user.IsInRole(RoleCodes.SuperAdmin);
+
         if (_user.EmployeeId is not null)
         {
-            var assigned = await _db.TeacherAssignments.AnyAsync(t =>
-                t.SchoolId == SchoolId && t.EmployeeId == _user.EmployeeId && t.ClassId == classId &&
+            var employeeId = _user.EmployeeId.Value;
+
+            // A teacher has a legitimate relationship with this class when ANY of these
+            // hold. The old check only accepted an exact (class, section) TeacherAssignment
+            // row, so teachers assigned as the section class teacher, as the class subject
+            // teacher, or to a different section of the same class were wrongly rejected
+            // with "You are not assigned to this class and section".
+            var exactAssignment = await _db.TeacherAssignments.AnyAsync(t =>
+                t.SchoolId == SchoolId && t.EmployeeId == employeeId && t.ClassId == classId &&
                 t.SectionId == sectionId && !t.IsDeleted, ct);
 
-            if (assigned || _user.IsInRole(RoleCodes.Principal) || _user.IsInRole(RoleCodes.Administrator) ||
-                _user.IsInRole(RoleCodes.SuperAdmin))
-                return _user.EmployeeId.Value;
+            var isClassTeacher = await _db.Sections.AnyAsync(s =>
+                s.Id == sectionId && s.SchoolId == SchoolId && s.ClassTeacherId == employeeId && !s.IsDeleted, ct);
+
+            var isSubjectTeacher = await _db.ClassSubjects.AnyAsync(cs =>
+                cs.ClassId == classId && cs.SubjectId == subjectId && cs.TeacherId == employeeId && cs.IsActive, ct);
+
+            var assignedToClass = await _db.TeacherAssignments.AnyAsync(t =>
+                t.SchoolId == SchoolId && t.EmployeeId == employeeId && t.ClassId == classId && !t.IsDeleted, ct);
+
+            if (isPrivileged || exactAssignment || isClassTeacher || isSubjectTeacher || assignedToClass)
+                return employeeId;
 
             if (_user.IsInRole(RoleCodes.Teacher) || _user.IsInRole(RoleCodes.ClassCoordinator))
                 throw DomainException.Forbidden("You are not assigned to this class and section. Ask the principal to assign you under Class & teachers.");
         }
+        else if (!isPrivileged)
+        {
+            throw DomainException.Forbidden("Only teaching staff can create homework.");
+        }
 
-        var sectionTeacher = await _db.Sections.Where(s => s.Id == sectionId && s.ClassTeacherId != null)
+        // Privileged users without an employee record attribute homework to the section's
+        // class teacher first, then to the teacher who owns the class subject.
+        var sectionTeacher = await _db.Sections.Where(s => s.Id == sectionId && s.SchoolId == SchoolId && s.ClassTeacherId != null)
             .Select(s => s.ClassTeacherId).FirstOrDefaultAsync(ct);
         if (sectionTeacher is not null) return sectionTeacher.Value;
 
         var subjectTeacher = await _db.ClassSubjects
-            .Where(cs => cs.ClassId == classId && cs.SubjectId == subjectId && cs.TeacherId != null && !cs.IsDeleted)
+            .Where(cs => cs.ClassId == classId && cs.SubjectId == subjectId && cs.TeacherId != null && cs.IsActive)
             .Select(cs => cs.TeacherId).FirstOrDefaultAsync(ct);
 
         return subjectTeacher ?? throw DomainException.Validation("No teacher is assigned to this class and subject.");

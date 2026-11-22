@@ -41,6 +41,15 @@ android {
                 storePassword = keystoreProperties.getProperty("storePassword")
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
+
+                // Emit v2 + v3 signatures from the same release key. minSdk is 24
+                // (Android 7.0), where APK Signature Scheme v2 is supported natively;
+                // AGP therefore skips v1 (JAR) signing even when enableV1Signing is set.
+                // AGP 9 uses enableV*Signing; the older isV*SigningEnabled properties
+                // are deprecated and no longer change the emitted schemes.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
             }
         }
     }
