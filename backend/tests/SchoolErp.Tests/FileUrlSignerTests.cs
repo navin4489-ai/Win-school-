@@ -73,6 +73,25 @@ public sealed class FileUrlSignerTests
     }
 
     [Fact]
+    public void SignStoredUrl_LocalUploadPath_SignsAndIsIdempotent()
+    {
+        const string local = "/files/school-2/2026/11/9cb2febc866e422593e09458ba138f35.png";
+        var signed = FileUrlSigner.SignStoredUrl(local)!;
+
+        Assert.StartsWith(local + "?sig=", signed);
+        Assert.Equal(signed, FileUrlSigner.SignStoredUrl(signed));
+        Assert.True(FileUrlSigner.Validate(local, signed.Split("?sig=")[1]));
+    }
+
+    [Fact]
+    public void SignStoredUrl_TraversalPath_IsNotSignable()
+    {
+        const string traversal = "/files/school-2/../secret.png";
+        Assert.Equal(traversal, FileUrlSigner.SignStoredUrl(traversal));
+        Assert.False(FileUrlSigner.Validate(traversal, FileUrlSigner.Compute("/files/school-2/../secret.png")));
+    }
+
+    [Fact]
     public void Compute_MatchesKnownVector()
     {
         // Must equal the value produced by the Node tool:

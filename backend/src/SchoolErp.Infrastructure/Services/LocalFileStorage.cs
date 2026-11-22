@@ -62,12 +62,7 @@ public sealed class LocalFileStorage : IFileStorage
 
     public Task DeleteAsync(string path, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(path)) return Task.CompletedTask;
-
-        var fullPath = Path.GetFullPath(Path.Combine(Root, path.Replace('/', Path.DirectorySeparatorChar)));
-        var root = Path.GetFullPath(Root);
-        if (!fullPath.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return Task.CompletedTask;
-
+        if (!TryResolveFullPath(Root, path, out var fullPath)) return Task.CompletedTask;
         if (File.Exists(fullPath)) File.Delete(fullPath);
         return Task.CompletedTask;
     }
@@ -79,6 +74,31 @@ public sealed class LocalFileStorage : IFileStorage
             path.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             return path;
 
-        return $"{_options.PublicBaseUrl.TrimEnd('/')}/{path.TrimStart('/')}";
+        // Local files are served by the gated /files/* endpoint. Signing the URL keeps a
+        // plain <img src>/<a href> working after the Files:SignedFromUtc grace window.
+        return FileUrlSigner.SignStoredUrl($"{_options.PublicBaseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
+    }
+
+    /// <summary>
+    /// Resolves a stored relative path to a full path inside <paramref name="rootPath"/>.
+    /// Rejects traversal segments, absolute paths, empty segments and anything that would
+    /// escape the uploads root. Shared with the /files/* endpoint so both use one guard.
+    /// </summary>
+    public static bool TryResolveFullPath(string rootPath, string relativePath, out string fullPath)
+    {
+        fullPath = string.Empty;
+        if (string.IsNullOrWhiteSpace(relativePath)) return false;
+
+        var relative = relativePath.Replace('\\', '/');
+        if (relative.Split('/').Any(s => s.Length == 0 || s is "." or ".." || s.Contains(':')))
+            return false;
+
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(rootPath));
+        var candidate = Path.GetFullPath(Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar)));
+        if (!candidate.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        fullPath = candidate;
+        return true;
     }
 }

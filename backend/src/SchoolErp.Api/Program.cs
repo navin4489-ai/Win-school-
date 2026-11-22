@@ -2,8 +2,8 @@ using System.Text.Json.Serialization;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi.Models;
 using SchoolErp.Api.Middleware;
@@ -163,15 +163,11 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 var uploadRoot = builder.Configuration["Storage:RootPath"] ?? "App_Data/uploads";
-var uploadsPath = Path.IsPathRooted(uploadRoot)
+var uploadsPath = Path.GetFullPath(Path.IsPathRooted(uploadRoot)
     ? uploadRoot
-    : Path.Combine(builder.Environment.ContentRootPath, uploadRoot);
+    : Path.Combine(builder.Environment.ContentRootPath, uploadRoot));
 Directory.CreateDirectory(uploadsPath);
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(uploadsPath),
-    RequestPath = "/files"
-});
+var fileContentTypes = new FileExtensionContentTypeProvider();
 
 app.MapGet("/files/db/{name}", async (string name, AppDbContext db, HttpContext http,
     IOptions<SchoolErp.Application.Common.FileSigningOptions> signingOptions, CancellationToken ct) =>
@@ -186,12 +182,8 @@ app.MapGet("/files/db/{name}", async (string name, AppDbContext db, HttpContext 
     // After the grace instant (or when it is absent), unsigned & unauthenticated -> 403.
     var requestPath = http.Request.Path.Value ?? string.Empty;
     var sig = http.Request.Query["sig"].ToString();
-    var signatureValid = SchoolErp.Application.Common.FileUrlSigner.Validate(requestPath, sig);
-    var authenticated = http.User?.Identity?.IsAuthenticated == true;
-    var signedFrom = signingOptions.Value.SignedFromUtc;
-    var inGrace = signedFrom.HasValue && DateTime.UtcNow < signedFrom.Value;
-
-    if (!signatureValid && !authenticated && !inGrace)
+    if (!SchoolErp.Application.Common.FileAccessPolicy.IsAllowed(requestPath, sig,
+            http.User?.Identity?.IsAuthenticated == true, signingOptions.Value.SignedFromUtc))
         return Results.Json(
             new { detail = "This file link is missing a valid signature. Reload the page to get a fresh link." },
             statusCode: StatusCodes.Status403Forbidden);
@@ -206,6 +198,36 @@ app.MapGet("/files/db/{name}", async (string name, AppDbContext db, HttpContext 
     return inline
         ? Results.File(blob.Content, blob.ContentType)
         : Results.File(blob.Content, blob.ContentType, blob.FileName);
+});
+
+// Local-disk uploads. There is deliberately no UseStaticFiles: every /files/* request
+// passes the gate above. The literal /files/db/{name} route has higher precedence than
+// this catch-all, so DB blobs are still served by the endpoint above.
+app.MapGet("/files/{**path}", (string path, HttpContext http,
+    IOptions<SchoolErp.Application.Common.FileSigningOptions> signingOptions) =>
+{
+    var requestPath = http.Request.Path.Value ?? string.Empty;
+    var sig = http.Request.Query["sig"].ToString();
+    if (!SchoolErp.Application.Common.FileAccessPolicy.IsAllowed(requestPath, sig,
+            http.User?.Identity?.IsAuthenticated == true, signingOptions.Value.SignedFromUtc))
+        return Results.Json(
+            new { detail = "This file link is missing a valid signature. Reload the page to get a fresh link." },
+            statusCode: StatusCodes.Status403Forbidden);
+
+    // Canonical full path must stay under the uploads root; no traversal or absolute path
+    // ever reaches the disk, even for an authenticated caller or a valid signature.
+    if (!SchoolErp.Infrastructure.Services.LocalFileStorage.TryResolveFullPath(uploadsPath, path, out var fullPath) ||
+        !File.Exists(fullPath))
+        return Results.NotFound();
+
+    http.Response.Headers.CacheControl = "private, max-age=86400";
+    if (!fileContentTypes.TryGetContentType(fullPath, out var contentType))
+        contentType = "application/octet-stream";
+    var inline = contentType.StartsWith("image/", StringComparison.OrdinalIgnoreCase) ||
+                 contentType.Equals("application/pdf", StringComparison.OrdinalIgnoreCase);
+    return inline
+        ? Results.File(fullPath, contentType, enableRangeProcessing: true)
+        : Results.File(fullPath, contentType, Path.GetFileName(fullPath), enableRangeProcessing: true);
 });
 
 app.MapGet("/health", () => Results.Ok(new
