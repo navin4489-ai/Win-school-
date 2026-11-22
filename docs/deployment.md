@@ -68,6 +68,32 @@ The long-lived notification stream is excluded from the global rate limiter
 (`[DisableRateLimiting]`), otherwise every open browser tab would hold a request permit for
 the lifetime of the connection.
 
+## Android app download
+
+The login page links to `GET /api/app/download`. The APK is read from a path outside the
+repository, configured by `AppDownload__ApkPath` (absolute, or relative to the API content
+root; defaults to `App_Data/app/WintechSchool.apk`). When no file is present the endpoint
+returns 404, so publishing is an explicit deployment step:
+
+```bash
+# Build the signed release APK where the Android SDK and keystore are available.
+cd mobile/school_erp_app
+flutter build apk --release
+
+# Publish it. Super-admin token required; only .apk files, max 200 MB.
+curl -X POST https://school-erp-api-3j9e.onrender.com/api/app/download \
+  -H "Authorization: Bearer $TOKEN" \
+  -F "file=@build/app/outputs/flutter-apk/app-release.apk;filename=WintechSchool.apk"
+
+# Verify: expect 200, application/vnd.android.package-archive, ~55 MB.
+curl -I https://school-erp-api-3j9e.onrender.com/api/app/download
+```
+
+The download endpoint is public and supports HTTP range requests; the publish endpoint is
+super-admin only and replaces the file atomically. The APK lives on the API instance's local
+disk, not in git or the database. Render's local disk is ephemeral, so republish after a
+redeploy, or mount persistent storage and point `AppDownload__ApkPath` at it.
+
 ## Health and monitoring
 
 | Signal | Alert |
@@ -93,5 +119,6 @@ the lifetime of the connection.
 - [ ] Mobile camera and location permissions declared in the Android manifest and the iOS plist.
 - [ ] Backups configured and a restore has been rehearsed.
 - [ ] Smoke test: login, admission, fee payment, attendance, report export.
+- [ ] Latest signed APK published via `POST /api/app/download` and the login-page download button verified.
 - [ ] UAT sign-off recorded (`docs/uat-checklist.md`).
 - [ ] Support rota and rollback owner named.
