@@ -5,7 +5,14 @@ import { AuthService } from './core/auth.service';
 import { NotificationService } from './core/notification.service';
 import { NotificationItem } from './core/models';
 
-interface NavItem { label: string; route: string; icon: string; permissions?: string[]; }
+interface NavItem {
+  label: string;
+  route: string;
+  icon: string;
+  permissions?: string[];
+  roles?: string[];
+  exceptRoles?: string[];
+}
 interface NavSection { label: string; items: NavItem[]; }
 
 @Component({
@@ -16,7 +23,7 @@ interface NavSection { label: string; items: NavItem[]; }
     <div class="shell">
       <aside class="sidebar" [class.open]="menuOpen()">
         <div class="brand">
-          <img class="brand-mark" src="logo.svg" alt="Wintech" />
+          <img class="brand-mark" src="/logo.svg" alt="Wintech" />
           <div>
             <strong>Wintech</strong>
             <div class="brand-sub">School ERP</div>
@@ -234,8 +241,9 @@ export class ShellComponent implements OnInit, OnDestroy {
     {
       label: 'Academics',
       items: [
-        { label: 'My attendance', route: '/my-attendance', icon: '⏱', permissions: ['attendance.mark'] },
-        { label: 'Attendance', route: '/attendance', icon: '✓', permissions: ['attendance.read'] },
+        { label: 'My attendance', route: '/my-attendance', icon: '⏱', permissions: ['attendance.mark'], exceptRoles: ['Parent'] },
+        { label: 'My children attendance', route: '/parent-attendance', icon: '✓', roles: ['Parent'] },
+        { label: 'Attendance', route: '/attendance', icon: '✓', permissions: ['attendance.read'], exceptRoles: ['Parent'] },
         { label: 'Class & teachers', route: '/assignments', icon: '⚙', permissions: ['settings.manage'] },
         { label: 'Examinations', route: '/exams', icon: '▤', permissions: ['exams.read'] },
         { label: 'Homework', route: '/homework', icon: '✐' }
@@ -301,6 +309,8 @@ export class ShellComponent implements OnInit, OnDestroy {
   }
 
   canSee(item: NavItem): boolean {
+    if (item.roles?.length && !item.roles.some(role => this.auth.hasRole(role))) return false;
+    if (item.exceptRoles?.some(role => this.auth.hasRole(role))) return false;
     // Check-in needs a staff (employee) record; the platform super admin has none.
     if (item.route === '/my-attendance' && !this.auth.user()?.employeeId) return false;
     return this.auth.hasAny(item.permissions ?? []);

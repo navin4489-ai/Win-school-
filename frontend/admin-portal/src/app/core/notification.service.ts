@@ -1,12 +1,14 @@
 import { Injectable, NgZone, inject, signal } from '@angular/core';
 import { NotificationItem } from './models';
+import { notificationStreamUrl } from './notification-stream-url';
 
 /**
- * The stream talks to the API service directly: the static site's /api rewrite
- * buffers server-sent events, so a stream opened through it never delivers a
- * frame. Everything else keeps using the same-origin /api paths.
+ * In production the static site's /api rewrite buffers server-sent events, so a
+ * stream opened through it never delivers a frame — the portal talks to the API
+ * service directly. Every other host (local, staging) uses the same-origin /api
+ * path so the dev proxy can route the stream.
  */
-const STREAM_URL = 'https://school-erp-api-3j9e.onrender.com/api/notifications/stream';
+const STREAM_URL = notificationStreamUrl(window.location.hostname);
 
 /**
  * Live notification centre.

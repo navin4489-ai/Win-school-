@@ -107,7 +107,9 @@ public sealed class AdmissionService
             Gender = request.Gender,
             GuardianName = request.GuardianName.Trim(),
             GuardianPhone = request.GuardianPhone.Trim(),
-            GuardianEmail = request.GuardianEmail?.Trim().ToLowerInvariant(),
+            GuardianEmail = string.IsNullOrWhiteSpace(request.GuardianEmail)
+                ? null
+                : request.GuardianEmail.Trim().ToLowerInvariant(),
             PreviousSchool = request.PreviousSchool,
             Source = request.Source,
             Notes = request.Notes,

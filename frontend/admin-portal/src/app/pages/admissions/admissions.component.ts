@@ -342,6 +342,7 @@ export class AdmissionsComponent implements OnInit {
     this.api
       .post<Admission>('admissions', {
         ...value,
+        guardianEmail: value.guardianEmail?.trim() || null,
         classId: value.classId,
         sessionId: this.currentSession()?.id ?? null
       })

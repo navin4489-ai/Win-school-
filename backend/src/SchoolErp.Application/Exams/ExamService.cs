@@ -206,10 +206,25 @@ public sealed class ExamService
             es.Id == examSubjectId && es.SchoolId == SchoolId && !es.IsDeleted, ct)
             ?? throw DomainException.NotFound("Exam subject");
 
-        var students = await _db.Students
+        var studentsQuery = _db.Students
             .Where(s => s.SchoolId == SchoolId && s.ClassId == examSubject.ClassId &&
-                        s.Status == StudentStatus.Active && !s.IsDeleted)
-            .OrderBy(s => s.FirstName).ToListAsync(ct);
+                        s.Status == StudentStatus.Active && !s.IsDeleted);
+
+        // Parents and students must never see class-wide marks. Teachers and
+        // administrators reach this method through the exams.read permission.
+        if (_user.IsInRole(RoleCodes.Parent))
+        {
+            var guardianId = _user.GuardianId ?? -1;
+            studentsQuery = studentsQuery.Where(s => _db.StudentParents.Any(sp =>
+                sp.GuardianId == guardianId && sp.StudentId == s.Id && !sp.IsDeleted));
+        }
+        else if (_user.IsInRole(RoleCodes.Student))
+        {
+            var studentId = _user.StudentId ?? -1;
+            studentsQuery = studentsQuery.Where(s => s.Id == studentId);
+        }
+
+        var students = await studentsQuery.OrderBy(s => s.FirstName).ToListAsync(ct);
 
         var marks = await _db.StudentMarks
             .Where(m => m.ExamSubjectId == examSubjectId && m.SchoolId == SchoolId && !m.IsDeleted)

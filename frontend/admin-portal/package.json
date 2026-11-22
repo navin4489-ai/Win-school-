@@ -5,7 +5,8 @@
   "scripts": {
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",
-    "watch": "ng build --watch --configuration development"
+    "watch": "ng build --watch --configuration development",
+    "test:unit": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@angular/common": "^18.2.0",

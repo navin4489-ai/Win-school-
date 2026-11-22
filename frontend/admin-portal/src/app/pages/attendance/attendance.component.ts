@@ -4,6 +4,7 @@ import { Component, computed, inject, OnInit, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/api.service';
 import { ClassAttendance, ClassRoom, Section } from '../../core/models';
+import { attendanceSaveMessage } from './attendance-messages';
 
 @Component({
   selector: 'app-attendance',
@@ -159,7 +160,7 @@ export class AttendanceComponent implements OnInit {
     });
   }
 
-  load(): void {
+  load(successMessage: string | null = null): void {
     if (!this.classId() || !this.sectionId()) return;
     this.loading.set(true);
     this.error.set(null);
@@ -177,6 +178,7 @@ export class AttendanceComponent implements OnInit {
             if (!student.status) student.status = 'Present';
           }
           this.attendance.set(roster);
+          this.message.set(successMessage);
           this.loading.set(false);
         },
         error: () => {
@@ -221,10 +223,8 @@ export class AttendanceComponent implements OnInit {
       .subscribe({
         next: result => {
           this.saving.set(false);
-          this.message.set(
-            `${result.created} records created, ${result.updated} updated, ${result.notificationsQueued} parent notifications queued.`
-          );
-          this.load();
+          // Reload first, then show the confirmation: load() clears the banner.
+          this.load(attendanceSaveMessage(result));
         },
         error: () => {
           this.saving.set(false);

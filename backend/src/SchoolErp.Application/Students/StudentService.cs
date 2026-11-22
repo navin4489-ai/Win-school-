@@ -163,9 +163,11 @@ public sealed class StudentService
         student.City = request.City;
         student.State = request.State;
         student.PostalCode = request.PostalCode;
-        student.MedicalNotes = request.MedicalNotes;
+        // These two fields are not exposed in the edit form. A null means "not supplied",
+        // so keep the stored value instead of clearing it when an edit is saved.
+        if (request.MedicalNotes is not null) student.MedicalNotes = request.MedicalNotes;
         student.PreviousSchool = request.PreviousSchool;
-        student.PhotoUrl = request.PhotoUrl;
+        if (request.PhotoUrl is not null) student.PhotoUrl = request.PhotoUrl;
         student.ModifiedAtUtc = _clock.UtcNow;
 
         await _uow.SaveChangesAsync(ct);

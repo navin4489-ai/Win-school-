@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
 import { Observable, tap } from 'rxjs';
 import { AuthResponse, UserProfile } from './models';
+import { isParentRole } from './roles';
 
 const ACCESS_KEY = 'school_erp_access';
 const REFRESH_KEY = 'school_erp_refresh';
@@ -60,6 +61,14 @@ export class AuthService {
 
   hasAny(permissions: string[]): boolean {
     return permissions.length === 0 || permissions.some(permission => this.has(permission));
+  }
+
+  isParent(): boolean {
+    return isParentRole(this.user()?.roleCode);
+  }
+
+  hasRole(roleCode: string): boolean {
+    return (this.user()?.roleCode ?? '').toLowerCase() === roleCode.toLowerCase();
   }
 
   initials(): string {

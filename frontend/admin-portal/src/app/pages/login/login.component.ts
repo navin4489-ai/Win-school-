@@ -11,7 +11,7 @@ import { AuthService } from '../../core/auth.service';
     <div class="login">
       <section class="hero">
         <div class="hero-top">
-          <img class="logo" src="logo.svg" alt="Wintech" />
+          <img class="logo" src="/logo.svg" alt="Wintech" />
           <div>
             <strong>Wintech</strong>
             <div class="logo-sub">School ERP</div>
@@ -42,7 +42,7 @@ import { AuthService } from '../../core/auth.service';
 
       <section class="panel">
         <div class="card-login">
-          <div class="mobile-brand"><img class="logo" src="logo.svg" alt="Wintech" /><strong>Wintech School ERP</strong></div>
+          <div class="mobile-brand"><img class="logo" src="/logo.svg" alt="Wintech" /><strong>Wintech School ERP</strong></div>
 
           <h2>Welcome back</h2>
           <p class="lead">Staff: use your email. Parents: use your child's admission number.</p>

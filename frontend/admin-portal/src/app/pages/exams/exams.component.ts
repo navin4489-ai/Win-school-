@@ -139,7 +139,9 @@ import { readError } from '../platform/schools.component';
                             Pass {{ subject.passMarks }}
                           </div>
                         </div>
-                        <button class="btn btn-ghost btn-sm" (click)="openMarks(subject)">Marks</button>
+                        @if (!auth.isParent()) {
+                          <button class="btn btn-ghost btn-sm" (click)="openMarks(subject)">Marks</button>
+                        }
                       </div>
                     }
                   </div>
@@ -308,6 +310,8 @@ export class ExamsComponent implements OnInit {
   }
 
   openMarks(subject: ExamSubject): void {
+    // Parents have no business in the class-wide marks entry grid.
+    if (this.auth.isParent()) return;
     this.marksSubject.set(subject);
     this.marks.set([]);
     this.api.get<StudentMark[]>(`exams/subjects/${subject.id}/marks`).subscribe({

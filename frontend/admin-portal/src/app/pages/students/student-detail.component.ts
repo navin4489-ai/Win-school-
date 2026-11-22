@@ -1,15 +1,18 @@
 import { localDate } from '../../core/dates';
 import { CurrencyPipe, DatePipe, DecimalPipe } from '@angular/common';
-import { Component, inject, OnInit, signal } from '@angular/core';
-import { FormsModule } from '@angular/forms';
+import { Component, computed, inject, OnInit, signal } from '@angular/core';
+import { FormBuilder, FormsModule, ReactiveFormsModule, Validators } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ApiService } from '../../core/api.service';
+import { AuthService } from '../../core/auth.service';
 import { AttendanceSummary, Ledger, StudentDetail } from '../../core/models';
+import { readError } from '../platform/schools.component';
+import { studentEditPayload } from './student-edit-payload';
 
 @Component({
   selector: 'app-student-detail',
   standalone: true,
-  imports: [DatePipe, DecimalPipe, CurrencyPipe, RouterLink, FormsModule],
+  imports: [DatePipe, DecimalPipe, CurrencyPipe, RouterLink, FormsModule, ReactiveFormsModule],
   template: `
     <div class="page">
       <div class="row">
@@ -32,11 +35,96 @@ import { AttendanceSummary, Ledger, StudentDetail } from '../../core/models';
           </div>
           <div class="toolbar">
             <span [class]="'badge ' + (s.status === 'Active' ? 'green' : 'amber')">{{ s.status }}</span>
+            @if (canEdit()) {
+              <button class="btn btn-primary btn-sm" (click)="editing() ? cancelEdit() : startEdit()" [disabled]="saving()">
+                {{ editing() ? 'Close editor' : 'Edit student' }}
+              </button>
+            }
             <button class="btn btn-ghost btn-sm" (click)="downloadCertificate('bonafide')">Bonafide</button>
             <button class="btn btn-ghost btn-sm" (click)="downloadCertificate('character')">Character</button>
             <button class="btn btn-ghost btn-sm" (click)="downloadCertificate('transfer')">Transfer</button>
           </div>
         </header>
+
+        @if (editing()) {
+          @if (student(); as s) {
+          <section class="card">
+            <div class="card-header">
+              <h3>Edit student details</h3>
+              <span class="small muted">Changes are saved to the student record.</span>
+            </div>
+            <div class="card-body">
+              @if (editError()) { <div class="error">{{ editError() }}</div> }
+              @if (editMessage()) { <div class="success">{{ editMessage() }}</div> }
+              <form class="form-grid" [formGroup]="editForm" (ngSubmit)="saveEdit()">
+                <label class="field">
+                  <span>First name *</span>
+                  <input formControlName="firstName" />
+                </label>
+                <label class="field">
+                  <span>Middle name</span>
+                  <input formControlName="middleName" />
+                </label>
+                <label class="field">
+                  <span>Last name *</span>
+                  <input formControlName="lastName" />
+                </label>
+                <label class="field">
+                  <span>Date of birth *</span>
+                  <input type="date" formControlName="dateOfBirth" />
+                </label>
+                <label class="field">
+                  <span>Gender *</span>
+                  <select formControlName="gender">
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>Blood group</span>
+                  <input formControlName="bloodGroup" />
+                </label>
+                <label class="field">
+                  <span>Email</span>
+                  <input type="email" formControlName="email" />
+                </label>
+                <label class="field">
+                  <span>Phone</span>
+                  <input formControlName="phone" />
+                </label>
+                <label class="field">
+                  <span>Address</span>
+                  <input formControlName="address" />
+                </label>
+                <label class="field">
+                  <span>City</span>
+                  <input formControlName="city" />
+                </label>
+                <label class="field">
+                  <span>State</span>
+                  <input formControlName="state" />
+                </label>
+                <label class="field">
+                  <span>Postal code</span>
+                  <input formControlName="postalCode" />
+                </label>
+                <label class="field">
+                  <span>Previous school</span>
+                  <input formControlName="previousSchool" />
+                </label>
+                <div class="full row">
+                  <button class="btn btn-primary" type="submit" [disabled]="saving() || editForm.invalid">
+                    {{ saving() ? 'Saving…' : 'Save changes' }}
+                  </button>
+                  <button class="btn btn-ghost" type="button" [disabled]="saving()" (click)="cancelEdit()">Cancel</button>
+                  <span class="small muted">Editing {{ s.admissionNo }}</span>
+                </div>
+              </form>
+            </div>
+          </section>
+          }
+        }
 
         <section class="split">
           <div style="display:grid;gap:20px">
@@ -206,13 +294,36 @@ import { AttendanceSummary, Ledger, StudentDetail } from '../../core/models';
 export class StudentDetailComponent implements OnInit {
   private readonly api = inject(ApiService);
   private readonly route = inject(ActivatedRoute);
+  private readonly fb = inject(FormBuilder);
+  private readonly auth = inject(AuthService);
 
   readonly student = signal<StudentDetail | null>(null);
   readonly ledger = signal<Ledger | null>(null);
   readonly attendance = signal<AttendanceSummary | null>(null);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+  readonly editing = signal(false);
+  readonly saving = signal(false);
+  readonly editError = signal<string | null>(null);
+  readonly editMessage = signal<string | null>(null);
+  readonly canEdit = computed(() => this.auth.has('students.write'));
   documentType = 'BirthCertificate';
+
+  readonly editForm = this.fb.nonNullable.group({
+    firstName: ['', Validators.required],
+    middleName: [''],
+    lastName: ['', Validators.required],
+    dateOfBirth: ['', Validators.required],
+    gender: ['Male', Validators.required],
+    bloodGroup: [''],
+    email: ['', Validators.email],
+    phone: [''],
+    address: [''],
+    city: [''],
+    state: [''],
+    postalCode: [''],
+    previousSchool: ['']
+  });
 
   ngOnInit(): void {
     const id = Number(this.route.snapshot.paramMap.get('id'));
@@ -248,6 +359,59 @@ export class StudentDetailComponent implements OnInit {
     this.api
       .get<AttendanceSummary>(`attendance/students/${id}`, { from: iso(from), to: iso(to) })
       .subscribe({ next: summary => this.attendance.set(summary), error: () => this.error.set('Some information could not be loaded. Check your connection and refresh the page.') });
+  }
+
+  startEdit(): void {
+    const student = this.student();
+    if (!student || !this.canEdit()) return;
+
+    this.editing.set(true);
+    this.editError.set(null);
+    this.editMessage.set(null);
+    this.editForm.reset({
+      firstName: student.firstName,
+      middleName: student.middleName ?? '',
+      lastName: student.lastName,
+      dateOfBirth: student.dateOfBirth.slice(0, 10),
+      gender: student.gender,
+      bloodGroup: student.bloodGroup ?? '',
+      email: student.email ?? '',
+      phone: student.phone ?? '',
+      address: student.address ?? '',
+      city: student.city ?? '',
+      state: student.state ?? '',
+      postalCode: student.postalCode ?? '',
+      previousSchool: student.previousSchool ?? ''
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  cancelEdit(): void {
+    this.editing.set(false);
+    this.editError.set(null);
+    this.editMessage.set(null);
+  }
+
+  saveEdit(): void {
+    const student = this.student();
+    if (!student || !this.canEdit() || this.editForm.invalid || this.saving()) return;
+
+    this.saving.set(true);
+    this.editError.set(null);
+    this.editMessage.set(null);
+
+    this.api.put<StudentDetail>(`students/${student.id}`, studentEditPayload(this.editForm.getRawValue())).subscribe({
+      next: updated => {
+        this.saving.set(false);
+        this.student.set(updated);
+        this.editing.set(false);
+        this.editMessage.set('Student details updated.');
+      },
+      error: response => {
+        this.saving.set(false);
+        this.editError.set(readError(response));
+      }
+    });
   }
 
   upload(event: Event): void {

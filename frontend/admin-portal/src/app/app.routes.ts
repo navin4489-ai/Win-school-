@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 import { ShellComponent } from './shell.component';
-import { authGuard, guestGuard, permissionGuard } from './core/guards';
+import { authGuard, guestGuard, notParentGuard, parentOnlyGuard, permissionGuard } from './core/guards';
 
 export const routes: Routes = [
   {
@@ -45,12 +45,17 @@ export const routes: Routes = [
       },
       {
         path: 'attendance',
-        canActivate: [permissionGuard('attendance.read')],
+        canActivate: [notParentGuard, permissionGuard('attendance.read')],
         loadComponent: () => import('./pages/attendance/attendance.component').then(m => m.AttendanceComponent)
       },
       {
+        path: 'parent-attendance',
+        canActivate: [parentOnlyGuard],
+        loadComponent: () => import('./pages/attendance/parent-attendance.component').then(m => m.ParentAttendanceComponent)
+      },
+      {
         path: 'my-attendance',
-        canActivate: [permissionGuard('attendance.mark')],
+        canActivate: [notParentGuard, permissionGuard('attendance.mark')],
         loadComponent: () => import('./pages/attendance/my-attendance.component').then(m => m.MyAttendanceComponent)
       },
       {

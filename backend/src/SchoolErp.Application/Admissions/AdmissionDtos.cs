@@ -46,7 +46,7 @@ public sealed class CreateEnquiryRequest
     public Gender Gender { get; set; }
     [Required, MaxLength(120)] public string GuardianName { get; set; } = string.Empty;
     [Required, MaxLength(20)] public string GuardianPhone { get; set; } = string.Empty;
-    [EmailAddress, MaxLength(200)] public string? GuardianEmail { get; set; }
+    [OptionalEmail, MaxLength(200)] public string? GuardianEmail { get; set; }
     [Range(1, int.MaxValue)] public int? ClassId { get; set; }
     [Range(1, int.MaxValue)] public int? SessionId { get; set; }
     [MaxLength(250)] public string? PreviousSchool { get; set; }
